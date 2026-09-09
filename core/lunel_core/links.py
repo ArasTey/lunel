@@ -12,8 +12,24 @@ from .relay.shadowsocks import DEFAULT_CIPHER, generate_ss_link
 from .state import Link
 
 
-def generate_share_link(link: Link, host: str, remark_prefix: str = "Lunel") -> str:
+def _with_prefix(link: Link, prefix: str) -> Link:
+    clone = Link(
+        uuid=link.uuid, label=link.label, protocol=link.protocol, active=link.active,
+        limit_bytes=link.limit_bytes, used_bytes=link.used_bytes,
+        created_at=link.created_at, expires_at=link.expires_at, note=link.note,
+        alpn=link.alpn, fingerprint=link.fingerprint,
+        ss_cipher=link.ss_cipher, ss_password=link.ss_password,
+    )
+    return clone
+
+
+def generate_share_link(link: Link, host: str, remark_prefix: str = "Lunel",
+                        path_prefix: str = "") -> str:
+    """Build a client import URL. ``path_prefix`` (e.g. ``/i/<token>``) is
+    prepended to every transport path so the link routes through the
+    Console's public endpoint on platforms exposing a single domain."""
     remark = f"{remark_prefix}-{link.label}"
+    p = path_prefix.rstrip("/")
     proto = link.protocol
 
     if proto == "shadowsocks":
@@ -24,36 +40,39 @@ def generate_share_link(link: Link, host: str, remark_prefix: str = "Lunel") -> 
     if proto == "trojan-ws":
         params = {
             "security": "tls", "type": "ws", "host": host,
-            "path": "/trojan-ws", "sni": host, "fp": link.fingerprint, "alpn": link.alpn,
+            "path": f"{p}/trojan-ws", "sni": host, "fp": link.fingerprint, "alpn": link.alpn,
         }
         query = "&".join(f"{k}={quote(str(v))}" for k, v in params.items())
-        return f"trojan://{link.uuid}@{host}:443?{query}#{quote(remark)}"
+        port_part = "" if ":" in host else ":443"
+        return f"trojan://{link.uuid}@{host}{port_part}?{query}#{quote(remark)}"
 
     if proto.startswith("trojan-xhttp-"):
         mode = proto.replace("trojan-xhttp-", "")
-        path = f"/txhttp-siz10/{mode}/{link.uuid}"
+        path = f"{p}/txhttp-siz10/{mode}/{link.uuid}"
         params = {
             "security": "tls", "type": "xhttp", "mode": mode, "host": host,
             "path": path, "sni": host, "fp": link.fingerprint, "alpn": link.alpn,
         }
         query = "&".join(f"{k}={quote(str(v))}" for k, v in params.items())
-        return f"trojan://{link.uuid}@{host}:443?{query}#{quote(remark)}"
+        port_part = "" if ":" in host else ":443"
+        return f"trojan://{link.uuid}@{host}{port_part}?{query}#{quote(remark)}"
 
     if proto == "vless-ws":
-        path = f"/ws/{link.uuid}"
+        path = f"{p}/ws/{link.uuid}"
         params = {
             "encryption": "none", "security": "tls", "type": "ws", "host": host,
             "path": path, "sni": host, "fp": link.fingerprint, "alpn": link.alpn,
         }
     else:
         mode = proto.replace("xhttp-", "") if proto.startswith("xhttp-") else "packet-up"
-        path = f"/xhttp-siz10/{mode}/{link.uuid}"
+        path = f"{p}/xhttp-siz10/{mode}/{link.uuid}"
         params = {
             "encryption": "none", "security": "tls", "type": "xhttp", "mode": mode,
             "host": host, "path": path, "sni": host, "fp": link.fingerprint, "alpn": link.alpn,
         }
     query = "&".join(f"{k}={quote(str(v))}" for k, v in params.items())
-    return f"vless://{link.uuid}@{host}:443?{query}#{quote(remark)}"
+    port_part = "" if ":" in host else ":443"
+    return f"vless://{link.uuid}@{host}{port_part}?{query}#{quote(remark)}"
 
 
 def subscription_payload(links: list[Link], host: str, title: str = "Lunel") -> tuple[str, dict]:

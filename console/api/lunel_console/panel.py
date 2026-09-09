@@ -296,7 +296,7 @@ function viewWizard(){
   show();
 }
 // ───────────────────────────── instance page ─────────────────────────────
-var TABS=["overview","logs","networking","deployments","activity","settings"];
+var TABS=["config","overview","logs","networking","deployments","activity","settings"];
 function viewInst(id){
   shell("dash");
   var v=$("#view");v.innerHTML='<div class="lw"><span class="sp1"></span></div>';

@@ -361,6 +361,54 @@ async def _worker_for(pool: asyncpg.Pool, instance_id: str) -> tuple[str | None,
     return worker_svc.worker_url_for(node_id), node_id
 
 
+@router.get("/instances/{instance_id}/config")
+async def instance_config(instance_id: str, request: Request,
+                          user: asyncpg.Record = Depends(current_user)):
+    """The actual proxy configs (vless:// etc.) for this instance, routed
+    through its public endpoint path. Host comes from the user's request so
+    the panel works on any platform domain."""
+    limiter.check(f"read:{user['id']}", RULES["api_read"])
+    pool = get_pool(request)
+    await owned_instance(pool, user["id"], instance_id)
+    dom = await pool.fetchrow(
+        "SELECT domain FROM domains WHERE instance_id = $1 AND kind = 'path' "
+        "AND is_active = TRUE ORDER BY created_at DESC LIMIT 1",
+        instance_id,
+    )
+    if dom is None:
+        raise HTTPException(status_code=404, detail="no endpoint provisioned yet")
+    host_hdr = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
+    host = host_hdr.split(",")[0].strip() or request.url.hostname or "localhost"
+    path_prefix = f"/i/{dom['domain']}"
+
+    link_rows = await pool.fetch(
+        "SELECT link_uuid, label FROM instance_links WHERE instance_id = $1 ORDER BY created_at",
+        instance_id,
+    )
+    node_url, _ = await _worker_for(pool, instance_id)
+    configs = []
+    error = None
+    if node_url:
+        try:
+            import httpx as _httpx
+            from ..config import settings as _settings
+
+            async with _httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    f"{node_url.rstrip('/')}/worker/api/instances/{instance_id}/proxy/core/api/share",
+                    json={"host": host, "path_prefix": path_prefix,
+                          "uuids": [r["link_uuid"] for r in link_rows]},
+                    headers={"Authorization": f"Bearer {_settings.worker_token}",
+                             "Content-Type": "application/json"},
+                )
+                resp.raise_for_status()
+                configs = resp.json().get("links", [])
+        except Exception as exc:
+            error = str(exc)[:200]
+    return {"endpoint_path": path_prefix, "hostname": host,
+            "configs": configs, "error": error}
+
+
 # ---------------------------------------------------------------------------
 # Deployments & activity
 # ---------------------------------------------------------------------------

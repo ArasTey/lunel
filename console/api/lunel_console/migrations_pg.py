@@ -150,6 +150,19 @@ MIGRATIONS: list[tuple[str, str]] = [
         """,
     ),
     (
+        "0004_instance_links",
+        """
+        CREATE TABLE IF NOT EXISTS instance_links (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            instance_id UUID NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
+            link_uuid   TEXT NOT NULL,
+            label       TEXT NOT NULL DEFAULT '',
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_instance_links_instance ON instance_links(instance_id);
+        """,
+    ),
+    (
         "0003_password_auth",
         """
         ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;

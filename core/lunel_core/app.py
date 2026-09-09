@@ -185,6 +185,32 @@ class Core:
             self._schedule_save()
             return {"ok": True}
 
+        @app.post("/core/api/share")
+        async def core_share(request: Request, _=Depends(guard)):
+            """Client import URLs (vless:// / trojan:// / ss://) for all links,
+            with an optional public path prefix for single-domain platforms."""
+            body = await request.json()
+            host = str(body.get("host") or "").strip() or (self.cfg.public_host or None)
+            prefix = str(body.get("path_prefix") or "").strip()
+            uuids = set(body.get("uuids") or [])
+            if not host:
+                raise HTTPException(status_code=400, detail="host required")
+            from .links import generate_share_link
+
+            out = []
+            for link in self.links.snapshot().values():
+                if uuids and link.uuid not in uuids:
+                    continue
+                if not link.is_allowed():
+                    continue
+                out.append({
+                    "uuid": link.uuid,
+                    "label": link.label,
+                    "protocol": link.protocol,
+                    "share_url": generate_share_link(link, host, path_prefix=prefix),
+                })
+            return {"links": out}
+
         @app.post("/core/api/state/flush")
         async def core_state_flush(_=Depends(guard)):
             await self.store.save(self.links, self.stats)

@@ -226,9 +226,13 @@ async def _pipeline_railway(pool: asyncpg.Pool, deployment_id: str, inst: dict,
     if not healthy:
         raise RuntimeError("public health check failed after deployment reported success")
 
+    # Provision the instance's default proxy link so the user gets a
+    # working config immediately (VLESS/Trojan/SS depending on protocol).
+    await _provision_default_link(pool, deployment_id, instance_id)
+
     await _set_deployment(pool, deployment_id, "running", finish=True)
     await _set_instance(pool, instance_id, "running")
-    await _log(pool, deployment_id, "Instance is running", "ok")
+    await _log(pool, deployment_id, "Instance is running — config ready", "ok")
 
 
 # ---------------------------------------------------------------------------
@@ -283,9 +287,55 @@ async def _pipeline_local(pool: asyncpg.Pool, deployment_id: str, inst: dict) ->
     if not healthy:
         raise RuntimeError("health check did not pass in time")
 
+    await _provision_default_link(pool, deployment_id, instance_id)
+
     await _set_deployment(pool, deployment_id, "running", finish=True)
     await _set_instance(pool, instance_id, "running")
-    await _log(pool, deployment_id, "Instance is running", "ok")
+    await _log(pool, deployment_id, "Instance is running — config ready", "ok")
+
+
+async def _provision_default_link(pool: asyncpg.Pool, deployment_id: str,
+                                  instance_id: str) -> None:
+    """Create the default proxy link inside the freshly deployed Core and
+    record it. Idempotent: skips when the instance already has a link."""
+    try:
+        from ..config import settings as _settings
+
+        row = await pool.fetchrow(
+            "SELECT core_api_token, name, protocol FROM instances i "
+            "JOIN instance_configs c ON c.instance_id = i.id WHERE i.id = $1",
+            instance_id,
+        )
+        existing = await pool.fetchval(
+            "SELECT COUNT(*) FROM instance_links WHERE instance_id = $1", instance_id
+        )
+        if row is None or existing:
+            return
+        dep = await pool.fetchrow(
+            "SELECT node_id FROM deployments WHERE id = $1", deployment_id
+        )
+        node_url = worker_svc.worker_url_for(
+            (dep["node_id"] if dep else None) or _settings.default_worker_node
+        )
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                f"{node_url.rstrip('/')}/worker/api/instances/{instance_id}"
+                f"/proxy/core/api/links",
+                json={"label": f"{row['name']} main", "protocol": row["protocol"]},
+                headers={"Authorization": f"Bearer {_settings.worker_token}",
+                         "Content-Type": "application/json"},
+            )
+            resp.raise_for_status()
+            link_uuid = resp.json()["uuid"]
+        await pool.execute(
+            "INSERT INTO instance_links (id, instance_id, link_uuid, label, created_at) "
+            "VALUES ($1, $2, $3, $4, $5)",
+            secrets.token_hex(16), instance_id, link_uuid,
+            f"{row['name']} main", datetime.now(timezone.utc),
+        )
+        await _log(pool, deployment_id, f"Default link provisioned ({row['protocol']})", "ok")
+    except Exception as exc:
+        await _log(pool, deployment_id, f"link provisioning failed: {exc}", "warn")
 
 
 # ---------------------------------------------------------------------------
