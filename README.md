@@ -45,30 +45,34 @@ GitHub  →  Lunel Console  →  Create Instance  →  Deploy  →  Running  →
 
 ---
 
-## Quick start (local development)
+## Quick start (fork and go)
 
-Requires Python 3.11+, a local PostgreSQL, and no Docker (the process driver is used).
+Deploy the repository root as **one service** on any platform that gives you
+a PostgreSQL database and a public domain (Lucity, Railway, Render, …):
+
+1. Fork this repo → create a PostgreSQL database (one click) → add a service
+   from the fork **root** with start command `python main.py` → generate a domain.
+2. Set three variables: `LUNEL_GITHUB_CLIENT_ID`, `LUNEL_GITHUB_CLIENT_SECRET`
+   (callback `https://<your-domain>/auth/callback`), `LUNEL_PUBLIC_URL=https://<your-domain>`.
+3. Open your domain → sign in with GitHub → **Create Instance** → Deploy.
+
+`DATABASE_URL` is auto-detected, secrets auto-generate, the worker and Core
+launcher run embedded. Full details in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+### Local development
+
+Requires Python 3.11+ and a local PostgreSQL.
 
 ```bash
-# 1. database
-createdb lunel  # adjust LUNEL_DATABASE_URL below to match your setup
-
-# 2. install
-cd core   && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cd ../worker && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cd ../console/api && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-
-# 3. run (console :8080, worker :9100)
-cd ../.. && LUNEL_CORE_PYTHON="$PWD/core/.venv/bin/python" \
-  LUNEL_CORE_CWD="$PWD/core" deploy/scripts/dev.sh
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+createdb lunel
+LUNEL_DATABASE_URL=postgresql://admin:lunel@127.0.0.1:5432/lunel \
+LUNEL_GITHUB_CLIENT_ID=... LUNEL_GITHUB_CLIENT_SECRET=... \
+.venv/bin/python main.py
 ```
 
-Open **http://127.0.0.1:8080**, sign in with GitHub
-(set `LUNEL_GITHUB_CLIENT_ID` / `LUNEL_GITHUB_CLIENT_SECRET`), create an instance,
-deploy, and import the generated link into v2rayNG / NekoBox / Streisand.
-
-For production/self-hosting with Docker, and for **deploying on Lucity**, see
-[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+Open **http://127.0.0.1:8080**. (Component-style development with separate
+venvs: `deploy/scripts/dev.sh`.)
 
 ---
 

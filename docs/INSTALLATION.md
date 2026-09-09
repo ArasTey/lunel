@@ -23,7 +23,7 @@
    ```bash
    (cd core         && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt)
    (cd worker       && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt)
-   (cd console/api  && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt)
+   (python3 -m venv .venv && .venv/bin/pip install -r requirements.txt)
    ```
 
    Migrations run automatically on first Console start.

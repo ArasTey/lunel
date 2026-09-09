@@ -1,0 +1,11 @@
+# Lunel unified service (console + worker + core in one deployment).
+# Deploy the repo root as a single service: railpack installs this and
+# runs `python main.py`. Split/multi-service deployments use the
+# per-component requirements under console/api/ and worker/.
+fastapi>=0.141
+uvicorn[standard]>=0.30
+asyncpg>=0.29
+httpx>=0.27
+websockets>=12.0
+cryptography>=42.0.0
+psutil>=5.9.0
