@@ -1,0 +1,12 @@
+{
+ "f9cdeca0c0e35182b107349b50971f6f": {
+  "deployment_id": "4ead17e4b9d69e6fda0f66b5e15c1eb9",
+  "core_version": "latest",
+  "api_token": "ceO8JsHOn-t4qDVXUpbZwuzzlOHyo1z_",
+  "public_host": "",
+  "cpu_limit": 0.5,
+  "memory_mb": 256,
+  "max_processes": 128,
+  "port": 19000
+ }
+}

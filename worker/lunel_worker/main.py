@@ -35,6 +35,7 @@ import psutil
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
+from . import registry
 from .driver import BaseDriver, DriverError, LaunchSpec, select_driver
 from .logging import get, setup_logging
 from .version import info as worker_info
@@ -93,7 +94,13 @@ async def ready():
 async def launch_instance(instance_id: str, request: Request, _=Depends(require_worker_token)):
     body = await request.json()
     if driver.is_known(instance_id):
-        raise HTTPException(status_code=409, detail="instance already launched on this node")
+        # Idempotent (re)launch: redeploys hit this path. Stop the old process
+        # but KEEP its data dir so links and state survive.
+        try:
+            await driver.stop(instance_id)
+        except DriverError:
+            pass
+        driver.handles.pop(instance_id, None)
     spec = LaunchSpec(
         instance_id=instance_id,
         deployment_id=str(body.get("deployment_id") or ""),
@@ -108,6 +115,16 @@ async def launch_instance(instance_id: str, request: Request, _=Depends(require_
         handle = await driver.launch(spec)
     except DriverError as exc:
         raise HTTPException(status_code=502, detail=f"launch failed: {exc}")
+    registry.save_instance(instance_id, {
+        "deployment_id": spec.deployment_id,
+        "core_version": spec.core_version,
+        "api_token": spec.api_token,
+        "public_host": spec.public_host,
+        "cpu_limit": spec.cpu_limit,
+        "memory_mb": spec.memory_mb,
+        "max_processes": spec.max_processes,
+        "port": handle.port,
+    })
     return {
         "ok": True,
         "instance_id": instance_id,
@@ -156,6 +173,16 @@ async def restart_instance(instance_id: str, request: Request, _=Depends(require
         handle = await driver.launch(spec)
     except DriverError as exc:
         raise HTTPException(status_code=502, detail=f"restart failed: {exc}")
+    registry.save_instance(instance_id, {
+        "deployment_id": spec.deployment_id,
+        "core_version": spec.core_version,
+        "api_token": spec.api_token,
+        "public_host": spec.public_host,
+        "cpu_limit": spec.cpu_limit,
+        "memory_mb": spec.memory_mb,
+        "max_processes": spec.max_processes,
+        "port": handle.port,
+    })
     return {"ok": True, "instance_id": instance_id, "port": handle.port, "driver": driver.name}
 
 
@@ -165,6 +192,7 @@ async def remove_instance(instance_id: str, _=Depends(require_worker_token)):
         await driver.remove(instance_id)
     except DriverError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
+    registry.remove(instance_id)
     return {"ok": True}
 
 
@@ -349,3 +377,28 @@ async def _startup() -> None:
     driver, _name = select_driver(DATA_ROOT)
     log.info("Lunel Worker %s on node=%s region=%s driver=%s", worker_info()["version"], NODE_ID, NODE_REGION, driver.name)
     asyncio.create_task(heartbeat_loop())
+    asyncio.create_task(_relaunch_known_instances())
+
+
+async def _relaunch_known_instances() -> None:
+    """Pod restarts kill managed Core processes; relaunch everything the
+    registry knows about with identical credentials."""
+    for iid, rec in registry.load().items():
+        if driver.is_known(iid):
+            continue
+        try:
+            spec = LaunchSpec(
+                instance_id=iid,
+                deployment_id=str(rec.get("deployment_id") or ""),
+                core_version=str(rec.get("core_version") or "latest"),
+                api_token=str(rec.get("api_token") or secrets.token_urlsafe(24)),
+                public_host=str(rec.get("public_host") or ""),
+                cpu_limit=float(rec.get("cpu_limit") or 0.5),
+                memory_mb=int(rec.get("memory_mb") or 256),
+                max_processes=int(rec.get("max_processes") or 128),
+                port=int(rec.get("port") or 0) or None,
+            )
+            await driver.launch(spec)
+            log.info("relaunched instance %s after restart", iid[:12])
+        except Exception as exc:
+            log.warning("relaunch failed for %s: %s", iid[:12], exc)

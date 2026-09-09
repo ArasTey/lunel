@@ -31,6 +31,9 @@ def generate_share_link(link: Link, host: str, remark_prefix: str = "Lunel",
     remark = f"{remark_prefix}-{link.label}"
     p = path_prefix.rstrip("/")
     proto = link.protocol
+    # WebSocket over TLS must negotiate HTTP/1.1 (see state.Link); emit the
+    # wire-correct ALPN regardless of what the stored link says.
+    alpn = "http/1.1"
 
     if proto == "shadowsocks":
         password = link.ss_password or ""
@@ -40,7 +43,7 @@ def generate_share_link(link: Link, host: str, remark_prefix: str = "Lunel",
     if proto == "trojan-ws":
         params = {
             "security": "tls", "type": "ws", "host": host,
-            "path": f"{p}/trojan-ws", "sni": host, "fp": link.fingerprint, "alpn": link.alpn,
+            "path": f"{p}/trojan-ws", "sni": host, "fp": link.fingerprint, "alpn": alpn,
         }
         query = "&".join(f"{k}={quote(str(v))}" for k, v in params.items())
         port_part = "" if ":" in host else ":443"
@@ -51,7 +54,7 @@ def generate_share_link(link: Link, host: str, remark_prefix: str = "Lunel",
         path = f"{p}/txhttp-siz10/{mode}/{link.uuid}"
         params = {
             "security": "tls", "type": "xhttp", "mode": mode, "host": host,
-            "path": path, "sni": host, "fp": link.fingerprint, "alpn": link.alpn,
+            "path": path, "sni": host, "fp": link.fingerprint, "alpn": alpn,
         }
         query = "&".join(f"{k}={quote(str(v))}" for k, v in params.items())
         port_part = "" if ":" in host else ":443"
@@ -61,14 +64,14 @@ def generate_share_link(link: Link, host: str, remark_prefix: str = "Lunel",
         path = f"{p}/ws/{link.uuid}"
         params = {
             "encryption": "none", "security": "tls", "type": "ws", "host": host,
-            "path": path, "sni": host, "fp": link.fingerprint, "alpn": link.alpn,
+            "path": path, "sni": host, "fp": link.fingerprint, "alpn": alpn,
         }
     else:
         mode = proto.replace("xhttp-", "") if proto.startswith("xhttp-") else "packet-up"
         path = f"{p}/xhttp-siz10/{mode}/{link.uuid}"
         params = {
             "encryption": "none", "security": "tls", "type": "xhttp", "mode": mode,
-            "host": host, "path": path, "sni": host, "fp": link.fingerprint, "alpn": link.alpn,
+            "host": host, "path": path, "sni": host, "fp": link.fingerprint, "alpn": alpn,
         }
     query = "&".join(f"{k}={quote(str(v))}" for k, v in params.items())
     port_part = "" if ":" in host else ":443"

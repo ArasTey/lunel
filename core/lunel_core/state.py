@@ -62,7 +62,11 @@ class Link:
         self.created_at = created_at or _utcnow().isoformat()
         self.expires_at = expires_at
         self.note = note[:300]
-        self.alpn = alpn[:60]
+        # WebSocket transports need HTTP/1.1: an "h2" ALPN token lets the TLS
+        # edge negotiate HTTP/2, where classic WS upgrades fail (RFC 8441 is
+        # not spoken by common clients). Strip h2 wherever it appears.
+        tokens = [t.strip() for t in alpn.split(",") if t.strip() and t.strip().lower() != "h2"]
+        self.alpn = ",".join(tokens)[:60] if tokens else "http/1.1"
         self.fingerprint = fingerprint if fingerprint in ("chrome", "firefox", "ios") else "chrome"
         self.ss_cipher = ss_cipher
         self.ss_password = ss_password
