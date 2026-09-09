@@ -307,7 +307,8 @@ function viewInst(id){
       '<div class="ha"><button class="btn" id="a-r">Restart</button><button class="btn" id="a-s">Stop</button><button class="btn" id="a-rd">Redeploy</button><button class="btn dng" id="a-d">Delete</button></div></div>'+
       '<div class="tabs">'+TABS.map(function(t){return '<button class="tab '+(t===tab?"act":"")+'" data-t="'+t+'">'+t[0].toUpperCase()+t.slice(1)+"</button>"}).join("")+'</div><div id="tb"></div>';
     var epEl=$("#ep");
-    if(pd&&pd.url){epEl.innerHTML='<span class="mono">'+esc(pd.url)+"</span> ";epEl.appendChild(copyBtn(pd.url));var a=document.createElement("a");a.href=pd.url;a.target="_blank";a.rel="noopener";a.textContent="open ↗";epEl.appendChild(a)}
+    if(pd){var url=location.origin+"/i/"+pd.domain;
+      epEl.innerHTML='<span class="mono">'+esc(url)+"</span> ";epEl.appendChild(copyBtn(url));var a=document.createElement("a");a.href=url;a.target="_blank";a.rel="noopener";a.textContent="open ↗";epEl.appendChild(a)}
     else epEl.textContent="no endpoint yet — deploy the instance";
     var busy=BUSY[inst.status];["a-r","a-s","a-rd","a-d"].forEach(function(x){var b=$("#"+x);if(b)b.disabled=!!busy});
     $("#a-r").onclick=function(){act("restart")};$("#a-s").onclick=function(){act("stop")};$("#a-rd").onclick=function(){act("redeploy")};
@@ -318,7 +319,39 @@ function viewInst(id){
   function refresh(){return api("GET","/api/instances/"+id).then(function(d){inst=d;head();draw()})}
   function draw(){
     var b=$("#tb");if(!b)return;
-    if(tab==="overview"){
+    if(tab==="config"){
+      b.innerHTML='<div class="card"><div class="row" style="justify-content:space-between"><h3>Your proxy config</h3><button class="btn sm" id="cf-r">Refresh</button></div><div id="cf-b" class="mut">Loading…</div></div>';
+      function loadCfg(){
+        $("#cf-b").innerHTML='<span class="mut">Loading…</span>';
+        api("GET","/api/instances/"+id+"/config").then(function(d){
+          if(!d.configs||!d.configs.length){
+            $("#cf-b").innerHTML='<span class="ftx">'+esc(d.error||"No config yet — if the instance shows Running, press Redeploy once (instances created before this fix get their link on redeploy).")+"</span>";
+            return;
+          }
+          // Build the client-facing URL in the BROWSER: the browser knows the
+          // real public host; server-side headers may only see internal names.
+          var pubHost=location.host;
+          $("#cf-b").innerHTML=d.configs.map(function(c){
+            var url=c.share_url;
+            var m=c.share_url.match(/^(vless|trojan):\/\/([^@]+)@([^\/?#]+)([^#]*)/);
+            if(m){
+              var proto=m[1],cred=m[2],inner=m[3],rest=m[4]||"";
+              var innerHost=inner.split(":")[0];
+              if(innerHost==="127.0.0.1"||innerHost==="localhost"||innerHost==="0.0.0.0"){
+                url=proto+"://"+cred+"@"+pubHost+rest;
+              }
+            }
+            return '<div style="margin-top:12px"><div class="row" style="justify-content:space-between"><b style="font-size:12.5px">'+esc(c.label)+'</b><span class="chip">'+esc(c.protocol)+"</span></div>"+
+              '<div class="mono" style="margin-top:5px;background:var(--bg2);border:1px solid var(--bd);border-radius:7px;padding:8px 10px;word-break:break-all;max-height:90px;overflow:auto">'+esc(url)+"</div>"+
+              '<div class="row" style="margin-top:6px"><button class="btn sm pri" data-copy="'+esc(url)+'">Copy config</button></div></div>';
+          }).join("");
+          Array.prototype.forEach.call($("#cf-b").querySelectorAll("[data-copy]"),function(btn){
+            btn.onclick=function(){navigator.clipboard&&navigator.clipboard.writeText(btn.dataset.copy).then(function(){toast("Config copied — in v2rayNG/NekoBox: Import config from clipboard","ok",5000)})}});
+        }).catch(function(e){$("#cf-b").innerHTML='<span class="ftx">'+esc(e.message)+"</span>"});
+      }
+      $("#cf-r").onclick=loadCfg;loadCfg();
+    }
+    else if(tab==="overview"){
       b.innerHTML='<div class="kv" id="okv"></div><div class="card" style="margin-top:16px"><h3>Latest deployment</h3><div id="odp" class="mut">—</div></div>';
       Promise.all([api("GET","/api/instances/"+id+"/status"),api("GET","/api/instances/"+id+"/metrics")]).then(function(rs){
         var st=rs[0],mt=rs[1],ld=inst.latest_deployment;
@@ -343,7 +376,7 @@ function viewInst(id){
       var list=(inst.domains||[]);
       b.innerHTML='<div class="card"><div class="row" style="justify-content:space-between"><h3>Endpoints</h3><button class="btn" id="rg">Regenerate</button></div><div id="dl2"></div></div>'+
         '<div class="card" style="margin-top:14px"><h3>Protocol paths</h3><table class="tbl"><tr><td>VLESS</td><td class="mono">/ws/&lt;uuid&gt; · /xhttp-siz10/…</td></tr><tr><td>Trojan</td><td class="mono">/trojan-ws · /txhttp-siz10/…</td></tr><tr><td>Shadowsocks</td><td class="mono">/ss-ws (AEAD)</td></tr></table><p class="ftx" style="font-size:12px;margin:9px 0 0">WebSocket upgrade, keep-alive and long-lived connections supported end-to-end. TLS at the edge.</p></div>';
-      $("#dl2").innerHTML=list.length?list.map(function(d){var url=d.url||(d.kind==="path"?"https://…/i/"+d.domain:"https://"+d.domain);
+      $("#dl2").innerHTML=list.length?list.map(function(d){var url=d.kind==="path"?(location.origin+"/i/"+d.domain):("https://"+d.domain);
         return '<div class="row" style="margin-top:9px"><span class="chip">'+d.kind+'</span><span class="mono" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70%">'+esc(url)+"</span></div>"}).join(""):'<p class="mut">No endpoints yet.</p>';
       $("#rg").onclick=function(){if(!confirm("Regenerate endpoints? Old links stop working."))return;
         api("POST","/api/instances/"+id+"/domains").then(function(){toast("Endpoints regenerated","ok");refresh()}).catch(function(e){toast(e.message,"err")})};
