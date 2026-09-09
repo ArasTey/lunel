@@ -2,13 +2,16 @@
 
 One deployable unit contains the whole platform:
 
-    python main.py
+    python main.py        # or:  uvicorn main:app
 
   * Lunel Console API + frontend on ``$PORT`` (default 8080) — the public
     endpoint on the platform's domain (WebSocket capable)
   * an embedded Lunel Worker on an internal loopback port
   * Lunel Core instances as isolated child processes (process driver, OS
     resource limits) on the same node
+
+The module exposes ``app`` (the Console ASGI application), so builders that
+detect ``uvicorn main:app`` (railpack et al.) work with zero configuration.
 
 Zero-config defaults:
   * ``DATABASE_URL`` (auto-injected by Lucity/Railway-style platforms) is
@@ -35,6 +38,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+
+_setup_done = False
+_worker: subprocess.Popen | None = None
 
 
 def _writable_dir(candidates: list[Path | None]) -> Path | None:
@@ -89,7 +95,28 @@ def pick_free_port(start: int, end: int | None = None) -> int:
     raise RuntimeError(f"no free internal port in range {start}-{end}")
 
 
-def main() -> int:
+def _stop_worker() -> None:
+    global _worker
+    if _worker is not None and _worker.poll() is None:
+        _worker.terminate()
+        try:
+            _worker.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            _worker.kill()
+    _worker = None
+
+
+def setup() -> None:
+    """Apply zero-config defaults and start the embedded worker (idempotent).
+
+    Runs at import time so both ``python main.py`` and ``uvicorn main:app``
+    boot the full platform.
+    """
+    global _setup_done, _worker
+    if _setup_done:
+        return
+    _setup_done = True
+
     # ---- configuration defaults (zero-config friendly) --------------------
     port = int(os.environ.get("PORT", os.environ.get("LUNEL_CONSOLE_PORT", "8080")))
     if not os.environ.get("LUNEL_DATABASE_URL") and os.environ.get("DATABASE_URL"):
@@ -120,47 +147,45 @@ def main() -> int:
     worker_env["LUNEL_WORKER_HOST"] = "127.0.0.1"
     worker_env["LUNEL_WORKER_PORT"] = str(worker_port)
     worker_env["LUNEL_CONSOLE_URL"] = f"http://127.0.0.1:{port}"  # heartbeat target
-    worker = subprocess.Popen(
+    _worker = subprocess.Popen(
         [sys.executable, "-m", "lunel_worker"],
         cwd=str(ROOT / "worker"),
         env=worker_env,
     )
-    atexit.register(_stop_worker, worker)
+    atexit.register(_stop_worker)
 
     def _terminate(_num, _frame):
-        _stop_worker(worker)
+        _stop_worker()
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, _terminate)
 
-    # ---- console (foreground process) --------------------------------------
+    # ---- console app on sys.path -------------------------------------------
     sys.path.insert(0, str(ROOT / "console" / "api"))
-    import uvicorn
-
-    print(f"[lunel] console : {os.environ['LUNEL_PUBLIC_URL']} (listening on 0.0.0.0:{port})")
+    print(f"[lunel] console : {os.environ['LUNEL_PUBLIC_URL']} (public port {port})")
     print(f"[lunel] worker  : internal on 127.0.0.1:{worker_port} "
           f"(process driver, data={data_root})")
-    print("[lunel] GitHub OAuth login requires LUNEL_GITHUB_CLIENT_ID / "
-          "LUNEL_GITHUB_CLIENT_SECRET and LUNEL_PUBLIC_URL set to the public domain")
-    try:
-        uvicorn.run(
-            "lunel_console.main:app",
-            host="0.0.0.0",
-            port=port,
-            log_level=os.environ.get("LUNEL_LOG_LEVEL", "info"),
-        )
-    finally:
-        _stop_worker(worker)
+    if not (os.environ.get("LUNEL_GITHUB_CLIENT_ID") and os.environ.get("LUNEL_GITHUB_CLIENT_SECRET")):
+        print("[lunel] note: set LUNEL_GITHUB_CLIENT_ID / LUNEL_GITHUB_CLIENT_SECRET "
+              "(callback <public-url>/auth/callback) to enable login", file=sys.stderr)
+
+
+setup()
+from lunel_console.main import app as app  # noqa: E402  (exposed for `uvicorn main:app`)
+
+
+def main() -> int:
+    port = int(os.environ.get("PORT", os.environ.get("LUNEL_CONSOLE_PORT", "8080")))
+    import uvicorn
+
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=port,
+        log_level=os.environ.get("LUNEL_LOG_LEVEL", "info"),
+    )
+    _stop_worker()
     return 0
-
-
-def _stop_worker(proc: subprocess.Popen) -> None:
-    if proc.poll() is None:
-        proc.terminate()
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
 
 
 if __name__ == "__main__":
