@@ -22,17 +22,6 @@ GitHub  →  Lunel Console  →  Create Instance  →  Deploy  →  Running  →
 | **Lunel Console** (`console/`) | The web control plane. GitHub OAuth login, dashboard, 6-step deploy wizard, live logs/connections/metrics, networking & domain management, admin panel — backed by PostgreSQL. |
 | **Lunel Worker** (`worker/`) | The node agent. Runs Core instances in isolated containers (Docker driver) or rlimit-separated processes (dev driver), reports heartbeats/metrics, and reverse-proxies traffic into instances. |
 
-### What was removed from RVG (and why)
-
-| Removed | Reason |
-|---|---|
-| `central.py` | Sent the panel password hash to a third-party Cloudflare Worker every 5 minutes. |
-| `updater.py` | Unsigned remote file replacement (an RCE channel gated on one domain). Replaced by versioned Core images + Console-driven redeploys. |
-| Telegram/Railway automation (`bottokentcpproxy.py`, `botgeneratedomin.py`) | Platform-specific domain lottery; replaced by the Worker/provider model. |
-| `zeussocks5.py` | Side-feature with fake persistence, invisible to quota accounting. |
-| MTProto backends | Runtime `apt-get`/`git`/`make` builds and unsigned binary downloads. Re-addable later as a pinned, verified sidecar. |
-| Open `/proxy/{url}` HTTP endpoint | Unauthenticated SSRF as a service. |
-| Inline 6,500-line HTML dashboard | Replaced by the Lunel Console frontend. |
 
 ### Security fixes carried into the refactor
 
