@@ -54,7 +54,9 @@ class _SqliteDatabase:
     mode = "sqlite"
 
     def __init__(self, path: str):
-        self._path = path.removeprefix("sqlite://")
+        p = path.removeprefix("sqlite://")
+        # sqlite:///abs/path → /abs/path (three slashes); sqlite://rel → rel
+        self._path = p if p.startswith("/") else "/" + p.lstrip("/")
         self._conn = None
         self._lock = asyncio.Lock()
 
@@ -436,7 +438,8 @@ async def init_pool() -> None:
 
 
 def _mask_sqlite(dsn: str) -> str:
-    return dsn.removeprefix("sqlite://")
+    p = dsn.removeprefix("sqlite://")
+    return p if p.startswith("/") else "/" + p.lstrip("/")
 
 
 async def close_db() -> None:

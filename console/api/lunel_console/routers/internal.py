@@ -64,23 +64,24 @@ async def heartbeat(request: Request):
     else:
         await pool.execute(
             """
-            UPDATE workers SET region = $3, driver = $4, status = 'online',
-                cpu_percent = $5, mem_used_mb = $6, mem_total_mb = $7,
-                disk_used_gb = $8, disk_total_gb = $9, instances = $10,
-                capacity = $11, last_heartbeat = $12
+            UPDATE workers SET region = $2, driver = $3, status = 'online',
+                cpu_percent = $4, mem_used_mb = $5, mem_total_mb = $6,
+                disk_used_gb = $7, disk_total_gb = $8, instances = $9,
+                capacity = $10, last_heartbeat = $11
             WHERE node_id = $1
             """,
-        node_id,
-        str(data.get("region") or "local")[:40],
-        str(data.get("driver") or "process")[:20],
-        _num("cpu_percent"),
-        int(_num("mem_used_mb") or 0) or None,
-        int(_num("mem_total_mb") or 0) or None,
-        _num("disk_used_gb"),
-        _num("disk_total_gb"),
-        int(_num("instances") or 0),
-        int(_num("capacity_instances") or 20),
-    )
+            node_id,
+            str(data.get("region") or "local")[:40],
+            str(data.get("driver") or "process")[:20],
+            _num("cpu_percent"),
+            int(_num("mem_used_mb") or 0) or None,
+            int(_num("mem_total_mb") or 0) or None,
+            _num("disk_used_gb"),
+            _num("disk_total_gb"),
+            int(_num("instances") or 0),
+            int(_num("capacity_instances") or 20),
+            now_iso,
+        )
     # Mark workers that stopped heartbeating as offline.
     await pool.execute(
         "UPDATE workers SET status = 'offline' WHERE enabled = TRUE "
