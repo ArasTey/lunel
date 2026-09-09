@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import version
-from .db import close_pool, init_pool
+from .db import close_db, init_pool
 from .logging import get, setup_logging
 from .routers import admin, auth, domains, instances, internal
 from .security.ratelimit import RULES, client_ip, limiter
@@ -44,9 +44,9 @@ async def health():
 
 @app.get("/ready")
 async def ready():
-    from .db import _pool
+    from .db import db
 
-    return {"ready": _pool is not None}
+    return {"ready": db is not None, "backend": getattr(db, "mode", None)}
 
 
 @app.get("/version")
@@ -71,7 +71,7 @@ async def lifespan(_app):
     await init_pool()
     log.info("Lunel Console %s started", version.version())
     yield
-    await close_pool()
+    await close_db()
     log.info("Lunel Console stopped")
 
 

@@ -21,6 +21,10 @@ from ..services.domains import generate_domain, slugify, validate_slug
 
 router = APIRouter(prefix="/api", tags=["instances"])
 
+def _utcnow() -> str:
+    return datetime.now(timezone.utc)
+
+
 PROTOCOLS = ("vless-ws", "trojan-ws", "shadowsocks", "xhttp-packet-up", "xhttp-stream-up")
 
 
@@ -53,14 +57,11 @@ async def list_instances(request: Request, user: asyncpg.Record = Depends(curren
         """
         SELECT i.id, i.name, i.slug, i.region, i.status, i.provider, i.created_at,
                i.last_active_at,
-               d.domain,
+               (SELECT d.domain FROM domains d
+                WHERE d.instance_id = i.id AND d.is_active = TRUE
+                ORDER BY d.created_at DESC LIMIT 1) AS domain,
                (SELECT COUNT(*) FROM deployments dep WHERE dep.instance_id = i.id) AS deployments_count
         FROM instances i
-        LEFT JOIN LATERAL (
-            SELECT domain FROM domains
-            WHERE instance_id = i.id AND is_active = TRUE
-            ORDER BY created_at DESC LIMIT 1
-        ) d ON TRUE
         WHERE i.user_id = $1 AND i.status <> 'deleted'
         ORDER BY i.created_at DESC
         """,
@@ -157,26 +158,29 @@ async def create_instance(request: Request, user: asyncpg.Record = Depends(curre
     if dup:
         raise HTTPException(status_code=409, detail="you already have an instance with this name")
 
-    instance_id = str((await pool.fetchrow(
-        """
-        INSERT INTO instances (user_id, name, slug, region, status, provider, core_api_token)
-        VALUES ($1, $2, $3, $4, 'stopped', $5, $6)
-        RETURNING id
-        """,
-        user["id"], body.name, slug, body.region,
-        "railway" if deploy_svc.railway_provider() else "local",
-        secrets.token_urlsafe(24),
-    ))["id"])
+    instance_id = secrets.token_hex(16)
+    now_iso = _utcnow()
     await pool.execute(
-        "INSERT INTO instance_configs (instance_id, protocol, cpu_limit, memory_mb, core_version) "
-        "VALUES ($1, $2, $3, $4, $5)",
-        instance_id, body.protocol, body.cpu_limit, body.memory_mb, body.core_version,
+        """
+        INSERT INTO instances (id, user_id, name, slug, region, status, provider,
+                               core_api_token, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, 'stopped', $6, $7, $8, $8)
+        """,
+        instance_id, user["id"], body.name, slug, body.region,
+        "railway" if deploy_svc.railway_provider() else "local",
+        secrets.token_urlsafe(24), now_iso,
+    )
+    await pool.execute(
+        "INSERT INTO instance_configs (instance_id, protocol, cpu_limit, memory_mb, core_version, updated_at) "
+        "VALUES ($1, $2, $3, $4, $5, $6)",
+        instance_id, body.protocol, body.cpu_limit, body.memory_mb, body.core_version, now_iso,
     )
     # Every instance gets a private path endpoint immediately (works on every
     # platform incl. Lucity; real hostnames come from the provider where supported).
     await pool.execute(
-        "INSERT INTO domains (instance_id, domain, kind, tls) VALUES ($1, $2, 'path', TRUE)",
-        instance_id, secrets.token_urlsafe(18),
+        "INSERT INTO domains (id, instance_id, domain, kind, tls, created_at) "
+        "VALUES ($1, $2, $3, 'path', TRUE, $4)",
+        secrets.token_hex(16), instance_id, secrets.token_urlsafe(18), _utcnow(),
     )
     await _record_activity(pool, user["id"], instance_id, "instance",
                            f"Instance '{body.name}' created")
@@ -194,7 +198,8 @@ async def delete_instance(instance_id: str, request: Request,
     except Exception:
         pass  # provider cleanup is best-effort; the record is tombstoned regardless
     await pool.execute(
-        "UPDATE instances SET status='deleted', updated_at=now() WHERE id=$1", instance_id
+        "UPDATE instances SET status='deleted', updated_at=$2 WHERE id=$1",
+        instance_id, _utcnow(),
     )
     await _record_activity(pool, user["id"], instance_id, "instance",
                            f"Instance '{inst['name']}' deleted", level="warn")
@@ -397,7 +402,7 @@ async def my_activity(request: Request, user: asyncpg.Record = Depends(current_u
 
 async def _record_activity(pool, user_id, instance_id, kind, message, level="info"):
     await pool.execute(
-        "INSERT INTO activity_events (user_id, instance_id, kind, level, message) "
-        "VALUES ($1, $2, $3, $4, $5)",
-        user_id, instance_id, kind, level, message,
+        "INSERT INTO activity_events (user_id, instance_id, kind, level, message, created_at) "
+        "VALUES ($1, $2, $3, $4, $5, $6)",
+        user_id, instance_id, kind, level, message, _utcnow(),
     )

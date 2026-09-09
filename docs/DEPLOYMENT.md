@@ -12,51 +12,37 @@ Three supported targets:
 
 ---
 
-## 1. One-click deploy (recommended)
+## 1. One-click deploy (recommended, zero required variables)
+
+Lunel runs out of the box with **no environment variables at all**: with no
+database configured it uses embedded SQLite (persisted under `/data`), and
+with no GitHub OAuth configured the first visitor creates the admin account
+via the built-in setup screen.
 
 ### Lucity
 
 1. **Fork** this repository to your GitHub account.
-2. **Provision PostgreSQL**: in your Lucity project, add a database
-   (e.g. name it `lunel`, PostgreSQL 16). Lucity provisions it via
-   CloudNativePG.
-3. **Wire the database to the service — required.** Lucity does *not*
-   inject database credentials automatically; you must add a **database
-   reference** on the service:
-
-   In the service's variables (dashboard), add:
-
-   | Key | Type | Value |
-   |---|---|---|
-   | `DATABASE_URL` | **database ref** | database `lunel`, key `uri` |
-
-   (This maps to `setServiceVariables` with `databaseRef: {database: "lunel", key: "uri"}` —
-   Lucity injects the full `postgresql://user:pass@host:5432/db` connection
-   string from the CNPG secret and keeps it updated across credential rotations.)
-   Lunel reads `DATABASE_URL` automatically — nothing else to configure.
-4. **Add a service** from your fork:
+2. **Add a service** from your fork:
    - Source: your fork, root directory `/` (repository root)
    - Port: leave the detected port / set `8080`; start command `python main.py`
    - **Generate a domain** in the service settings → this URL is the whole
      platform (console UI, API, and all instance endpoints under `/i/<token>`,
      WebSocket + automatic TLS included).
-5. **Set environment variables** on the service (service variables):
+3. **Deploy.** Open your domain → the setup screen appears → create the admin
+   account → **Create Instance** → Deploy → the instance page shows a ready
+   endpoint (`https://<your-domain>/i/<token>`) → import the generated link
+   into v2rayNG / NekoBox / Streisand.
 
-   | Variable | Value |
-   |---|---|
-   | `LUNEL_GITHUB_CLIENT_ID` / `LUNEL_GITHUB_CLIENT_SECRET` | From a GitHub OAuth App whose callback is `https://<your-domain>/auth/callback` |
-   | `LUNEL_PUBLIC_URL` | `https://<your-domain>` (the generated domain) |
-   | `LUNEL_ADMIN_GITHUB_LOGIN` | your GitHub login (first admin) |
-   | `LUNEL_COOKIE_SECURE` | `1` |
+That's the whole deployment. Optional hardening once it runs:
 
-   Everything else is automatic: `DATABASE_URL` comes from the database ref,
-   `LUNEL_SECRET_KEY` is generated and persisted on first boot, the worker
-   token is generated internally.
+| Upgrade | How |
+|---|---|
+| PostgreSQL instead of SQLite | Provision a database in the project, then on the service add a **database ref** variable: key `DATABASE_URL`, database `lunel`, key `uri`. Redeploy. (Lucity requires this explicit ref — see its docs; Lunel auto-detects `DATABASE_URL` and all `PG*` variants.) |
+| GitHub sign-in instead of password | Create a GitHub OAuth App (callback `https://<your-domain>/auth/callback`), set `LUNEL_GITHUB_CLIENT_ID` / `LUNEL_GITHUB_CLIENT_SECRET` as service variables. |
+| Public-domain metadata | Set `LUNEL_PUBLIC_URL=https://<your-domain>` and `LUNEL_COOKIE_SECURE=1`. |
 
-6. **Deploy.** Open your domain → sign in with GitHub → **Create Instance** →
-   Deploy → the instance page shows a ready endpoint
-   (`https://<your-domain>/i/<token>`) → import the generated link into
-   v2rayNG / NekoBox / Streisand.
+Data note: SQLite persists in `/data/lunel.db`; attach a Lucity volume to
+`/data` so it survives redeploys, or switch to PostgreSQL as above.
 
 > **Instance isolation note:** on managed platforms the unified service uses
 > the **process driver** (OS rlimits + per-instance data dirs). Container-level

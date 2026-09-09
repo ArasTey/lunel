@@ -43,18 +43,20 @@ async def _resolve_endpoint(request: Request, token: str) -> dict | None:
     pool = get_pool(request)
     row = await pool.fetchrow(
         """
-        SELECT i.id, i.status, d.domain, w.node_id
+        SELECT i.id, i.status,
+               (SELECT d.domain FROM domains d WHERE d.instance_id = i.id
+                 AND d.is_active = TRUE AND d.kind = 'path'
+                 ORDER BY d.created_at DESC LIMIT 1) AS endpoint_token,
+               (SELECT dep.node_id FROM deployments dep WHERE dep.instance_id = i.id
+                 ORDER BY dep.started_at DESC LIMIT 1) AS node_id
         FROM instances i
-        JOIN domains d ON d.instance_id = i.id AND d.is_active = TRUE
-        LEFT JOIN LATERAL (
-            SELECT node_id FROM deployments WHERE instance_id = i.id
-            ORDER BY started_at DESC LIMIT 1
-        ) dep ON TRUE
-        LEFT JOIN workers w ON w.node_id = COALESCE(dep.node_id, $2)
-        WHERE d.kind = 'path' AND d.domain = $1
+        WHERE i.id IN (SELECT instance_id FROM domains
+                        WHERE kind = 'path' AND domain = $1 AND is_active = TRUE)
         """,
-        token, "local",
+        token,
     )
+    if row is not None and row["endpoint_token"] is None:
+        row = None
     if row is None or row["status"] != "running":
         return None
     from ..services.workers import worker_url_for

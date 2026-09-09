@@ -4,6 +4,8 @@ Every route requires the admin flag. Actions are audited into activity_events.
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -28,6 +30,7 @@ async def admin_user(request: Request) -> asyncpg.Record:
 @router.get("/overview")
 async def overview(request: Request, _=Depends(admin_user)):
     pool = get_pool(request)
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24))
     stats = await pool.fetchrow(
         """
         SELECT
@@ -35,9 +38,10 @@ async def overview(request: Request, _=Depends(admin_user)):
           (SELECT COUNT(*) FROM instances WHERE status <> 'deleted') AS instances,
           (SELECT COUNT(*) FROM instances WHERE status = 'running') AS instances_running,
           (SELECT COUNT(*) FROM instances WHERE status = 'failed') AS instances_failed,
-          (SELECT COUNT(*) FROM deployments WHERE started_at > now() - interval '24 hours') AS deployments_24h,
+          (SELECT COUNT(*) FROM deployments WHERE started_at > $1) AS deployments_24h,
           (SELECT COUNT(*) FROM workers WHERE status = 'online') AS workers_online
-        """
+        """,
+        cutoff,
     )
     return dict(stats)
 
@@ -156,9 +160,10 @@ async def instance_action(instance_id: str, action: str, request: Request,
     else:
         await deploy_svc.deploy_instance(pool, instance_id, is_redeploy=True)
     await pool.execute(
-        "INSERT INTO activity_events (user_id, instance_id, kind, level, message) "
-        "VALUES ($1, $2, 'admin', 'warn', $3)",
+        "INSERT INTO activity_events (user_id, instance_id, kind, level, message, created_at) "
+        "VALUES ($1, $2, 'admin', 'warn', $3, $4)",
         admin["id"], instance_id, f"Admin '{admin['login']}' issued {action} on '{inst['name']}'",
+        datetime.now(timezone.utc),
     )
     return {"ok": True}
 
@@ -173,11 +178,12 @@ async def admin_delete_instance(instance_id: str, request: Request,
     if inst is None:
         raise HTTPException(status_code=404, detail="instance not found")
     await deploy_svc.delete_from_provider(pool, instance_id)
-    await pool.execute("UPDATE instances SET status='deleted', updated_at=now() WHERE id=$1", instance_id)
+    await pool.execute("UPDATE instances SET status='deleted', updated_at=$2 WHERE id=$1", instance_id, datetime.now(timezone.utc))
     await pool.execute(
-        "INSERT INTO activity_events (user_id, instance_id, kind, level, message) "
-        "VALUES ($1, $2, 'admin', 'warn', $3)",
+        "INSERT INTO activity_events (user_id, instance_id, kind, level, message, created_at) "
+        "VALUES ($1, $2, 'admin', 'warn', $3, $4)",
         admin["id"], instance_id, f"Admin '{admin['login']}' deleted '{inst['name']}'",
+        datetime.now(timezone.utc),
     )
     return {"ok": True}
 

@@ -13,6 +13,7 @@ QUEUED → PREPARING → BUILDING → STARTING → HEALTH_CHECK → RUNNING / FA
 from __future__ import annotations
 
 import asyncio
+import secrets
 from datetime import datetime, timezone
 
 import asyncpg
@@ -40,8 +41,8 @@ def railway_provider() -> RailwayProvider | None:
 
 async def _log(pool: asyncpg.Pool, deployment_id: str, message: str, level: str = "info") -> None:
     await pool.execute(
-        "INSERT INTO deployment_logs (deployment_id, level, message) VALUES ($1, $2, $3)",
-        deployment_id, level, message,
+        "INSERT INTO deployment_logs (deployment_id, ts, level, message) VALUES ($1, $2, $3, $4)",
+        deployment_id, datetime.now(timezone.utc), level, message,
     )
     log.info("deploy[%s] %s", deployment_id[:8], message)
 
@@ -49,15 +50,21 @@ async def _log(pool: asyncpg.Pool, deployment_id: str, message: str, level: str 
 async def _set_deployment(pool: asyncpg.Pool, deployment_id: str, status: str,
                           error: str | None = None, finish: bool = False) -> None:
     if finish:
+        row = await pool.fetchrow(
+            "SELECT started_at FROM deployments WHERE id = $1", deployment_id
+        )
+        duration_ms = None
+        if row is not None and row["started_at"] is not None:
+            started = row["started_at"]
+            if isinstance(started, str):
+                started = datetime.fromisoformat(started)
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            duration_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
         await pool.execute(
-            """
-            UPDATE deployments
-            SET status = $2, error = $3,
-                finished_at = now(),
-                duration_ms = (EXTRACT(EPOCH FROM (now() - started_at)) * 1000)::int
-            WHERE id = $1
-            """,
-            deployment_id, status, error,
+            "UPDATE deployments SET status = $2, error = $3, finished_at = $4, duration_ms = $5 "
+            "WHERE id = $1",
+            deployment_id, status, error, datetime.now(timezone.utc), duration_ms,
         )
     else:
         await pool.execute(
@@ -65,16 +72,17 @@ async def _set_deployment(pool: asyncpg.Pool, deployment_id: str, status: str,
             deployment_id, status, error,
         )
     await pool.execute(
-        "UPDATE instances SET status = $2, updated_at = now() WHERE id = "
+        "UPDATE instances SET status = $2, updated_at = $3 WHERE id = "
         "(SELECT instance_id FROM deployments WHERE id = $1)",
-        deployment_id, status,
+        deployment_id, status, datetime.now(timezone.utc),
     )
 
 
 async def _set_instance(pool: asyncpg.Pool, instance_id: str, status: str) -> None:
+    now_iso = datetime.now(timezone.utc)
     await pool.execute(
-        "UPDATE instances SET status=$2, last_active_at=now(), updated_at=now() WHERE id=$1",
-        instance_id, status,
+        "UPDATE instances SET status=$2, last_active_at=$3, updated_at=$3 WHERE id=$1",
+        instance_id, status, now_iso,
     )
 
 
@@ -103,11 +111,12 @@ async def deploy_instance(pool: asyncpg.Pool, instance_id: str, *, is_redeploy: 
 
     deployment_id = str((await pool.fetchrow(
         """
-        INSERT INTO deployments (instance_id, version, core_version, status)
-        VALUES ($1, $2, $3, 'queued')
+        INSERT INTO deployments (id, instance_id, version, core_version, status, started_at)
+        VALUES ($1, $2, $3, $4, 'queued', $5)
         RETURNING id
         """,
-        instance_id, version, inst["core_version"],
+        secrets.token_hex(16), instance_id, version, inst["core_version"],
+        datetime.now(timezone.utc),
     ))["id"])
 
     asyncio.create_task(_run_pipeline(pool, deployment_id, dict(inst), is_redeploy))
@@ -144,8 +153,8 @@ async def _pipeline_railway(pool: asyncpg.Pool, deployment_id: str, inst: dict,
         await _log(pool, deployment_id, "Creating Railway service…")
         service_id = await provider.create_service(f"lunel-inst-{instance_id[:8]}")
         await pool.execute(
-            "UPDATE instances SET provider='railway', provider_ref=$2, updated_at=now() WHERE id=$1",
-            instance_id, service_id,
+            "UPDATE instances SET provider='railway', provider_ref=$2, updated_at=$3 WHERE id=$1",
+            instance_id, service_id, datetime.now(timezone.utc),
         )
     else:
         await _log(pool, deployment_id, f"Reusing Railway service {service_id[:12]}…")
@@ -161,10 +170,11 @@ async def _pipeline_railway(pool: asyncpg.Pool, deployment_id: str, inst: dict,
         dom = await provider.create_domain(service_id)
         await pool.execute(
             """
-            INSERT INTO domains (instance_id, domain, provider_ref, tls)
-            VALUES ($1, $2, $3, TRUE)
+            INSERT INTO domains (id, instance_id, domain, provider_ref, tls, created_at)
+            VALUES ($4, $1, $2, $3, TRUE, $5)
             """,
-            instance_id, dom["domain"], dom["id"],
+            instance_id, dom["domain"], dom["id"], secrets.token_hex(16),
+            datetime.now(timezone.utc),
         )
         domain = dom["domain"]
     else:
@@ -307,7 +317,8 @@ async def stop_instance(pool: asyncpg.Pool, instance_id: str) -> None:
         node_url = worker_svc.worker_url_for((inst2["node_id"] if inst2 else None) or settings.default_worker_node)
         await worker_svc.worker_call(node_url, "POST", f"/worker/api/instances/{instance_id}/stop")
     await pool.execute(
-        "UPDATE instances SET status='stopped', updated_at=now() WHERE id=$1", instance_id
+        "UPDATE instances SET status='stopped', updated_at=$2 WHERE id=$1",
+        instance_id, datetime.now(timezone.utc),
     )
 
 
@@ -318,7 +329,8 @@ async def restart_instance(pool: asyncpg.Pool, instance_id: str) -> None:
         if inst["provider_ref"] and provider:
             await provider.restart_service(inst["provider_ref"])
         await pool.execute(
-            "UPDATE instances SET status='starting', updated_at=now() WHERE id=$1", instance_id
+            "UPDATE instances SET status='starting', updated_at=$2 WHERE id=$1",
+            instance_id, datetime.now(timezone.utc),
         )
     else:
         await deploy_instance(pool, instance_id, is_redeploy=True)

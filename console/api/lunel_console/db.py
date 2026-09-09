@@ -1,11 +1,25 @@
-"""PostgreSQL schema migrations for Lunel Console (applied on startup).
+"""Database layer for the Lunel Console.
 
-Migrations are plain SQL executed in order and tracked in schema_migrations.
+Two backends behind one facade:
+
+* PostgreSQL (asyncpg) — the production backend, used whenever a DSN is
+  configured (platform-injected DATABASE_URL / PG* variables).
+* SQLite (aiosqlite) — the zero-config fallback so a fresh deployment runs
+  with no variables at all (fork → deploy → sign in). Same schema, same
+  queries, real persistence.
+
+Queries are written in a dialect-neutral subset (no now(), LATERAL, or
+EXTRACT; timestamps passed as ISO-8601 UTC strings; UUIDs generated in
+Python). The facade translates ``$N`` placeholders for SQLite and parses
+ISO datetime strings back into ``datetime`` objects on read.
 """
 from __future__ import annotations
 
 import asyncio
+import os
+import re
 import ssl as ssl_module
+from datetime import datetime
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import asyncpg
@@ -16,14 +30,165 @@ from .logging import get
 log = get("runtime", "lunel.console.db")
 
 _pool: asyncpg.Pool | None = None
+_sqlite: "_SqliteDatabase | None" = None
+ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
 
 
+class _Row(dict):
+    """dict with attribute-style access; strings that look like ISO datetimes
+    are parsed on construction so router code can call .isoformat()."""
+
+    def __init__(self, mapping):
+        super().__init__(mapping)  # accepts zip/pairs/kwargs
+        for key, value in list(self.items()):
+            if isinstance(value, str) and ISO_RE.match(value):
+                try:
+                    self[key] = datetime.fromisoformat(value)
+                except ValueError:
+                    pass
+
+
+class _SqliteDatabase:
+    """aiosqlite-backed facade matching the asyncpg call surface."""
+
+    mode = "sqlite"
+
+    def __init__(self, path: str):
+        self._path = path.removeprefix("sqlite://")
+        self._conn = None
+        self._lock = asyncio.Lock()
+
+    async def connect(self) -> None:
+        import aiosqlite
+
+        os.makedirs(os.path.dirname(self._path) or ".", exist_ok=True)
+        self._conn = await aiosqlite.connect(self._path)
+        self._conn.row_factory = None
+        await self._conn.execute("PRAGMA journal_mode=WAL")
+        await self._conn.execute("PRAGMA foreign_keys=ON")
+        await self._conn.execute("PRAGMA busy_timeout=10000")
+        await self._conn.commit()
+        log.info("sqlite database at %s", self._path)
+
+    async def conn_executescript(self, script: str) -> None:
+        import aiosqlite
+
+        await self._conn.executescript(script)
+
+    async def close(self) -> None:
+        if self._conn is not None:
+            await self._conn.close()
+            self._conn = None
+
+    # -- $N → ? translation -------------------------------------------------
+    @staticmethod
+    def _translate(query: str, args: tuple) -> tuple[str, list]:
+        positions: list[int] = []
+
+        def _sub(match: re.Match) -> str:
+            positions.append(int(match.group(1)))
+            return "?"
+
+        query = re.sub(r"\$(\d+)", _sub, query)
+        try:
+            ordered = [
+                a.isoformat() if isinstance(a, datetime) else a
+                for a in (args[n - 1] for n in positions)
+            ]
+        except IndexError as exc:
+            raise RuntimeError(f"missing query parameter in: {query[:120]}") from exc
+        return query, ordered
+
+    def _mkrow(self, cursor, row: tuple) -> _Row:
+        cols = [d[0] for d in cursor.description or []]
+        return _Row(zip(cols, row))
+
+    async def fetch(self, query: str, *args) -> list[_Row]:
+        q, a = self._translate(query, args)
+        async with self._lock:
+            cur = await self._conn.execute(q, a)
+            rows = [self._mkrow(cur, r) for r in await cur.fetchall()]
+            await self._conn.commit()
+            await cur.close()
+        return rows
+
+    async def fetchrow(self, query: str, *args) -> _Row | None:
+        q, a = self._translate(query, args)
+        async with self._lock:
+            cur = await self._conn.execute(q, a)
+            r = await cur.fetchone()
+            out = self._mkrow(cur, r) if r is not None else None
+            # Commit after every statement: this facade also serves INSERT …
+            # RETURNING writes, and SQLite autocommit requires it.
+            await self._conn.commit()
+            await cur.close()
+        return out
+
+    async def fetchval(self, query: str, *args):
+        q, a = self._translate(query, args)
+        async with self._lock:
+            cur = await self._conn.execute(q, a)
+            r = await cur.fetchone()
+            await self._conn.commit()
+            await cur.close()
+        return r[0] if r is not None else None
+
+    async def execute(self, query: str, *args) -> str:
+        q, a = self._translate(query, args)
+        async with self._lock:
+            cur = await self._conn.execute(q, a)
+            await self._conn.commit()
+            status = f"OK {cur.rowcount}"
+            await cur.close()
+        return status
+
+    def transaction(self):  # unused; executes autocommit per statement
+        raise NotImplementedError
+
+
+class _PostgresDatabase:
+    mode = "postgres"
+
+    def __init__(self, pool: asyncpg.Pool):
+        self._pool = pool
+
+    async def close(self) -> None:
+        await self._pool.close()
+
+    async def fetch(self, query: str, *args) -> list:
+        return await self._pool.fetch(query, *args)
+
+    async def fetchrow(self, query: str, *args):
+        return await self._pool.fetchrow(query, *args)
+
+    async def fetchval(self, query: str, *args):
+        return await self._pool.fetchval(query, *args)
+
+    async def execute(self, query: str, *args) -> str:
+        return await self._pool.execute(query, *args)
+
+    def transaction(self):
+        return self._pool.acquire()
+
+
+db: "_PostgresDatabase | _SqliteDatabase | None" = None
+
+
+def get_pool(request) -> "_PostgresDatabase | _SqliteDatabase":
+    """Backwards-compatible accessor used by routers (``get_pool(request)``)."""
+    if db is None:
+        raise RuntimeError("database not initialised")
+    return db
+
+
+# ---------------------------------------------------------------------------
+# DSN handling (PostgreSQL mode)
+# ---------------------------------------------------------------------------
 def _normalize_dsn(dsn: str) -> tuple[str, ssl_module.SSLContext | None]:
     """Normalize a DSN for asyncpg and translate `sslmode=` into an SSL context.
 
     asyncpg does not parse `sslmode` from the query string; platforms like
-    Railway/Supabase/Neon commonly append it. Returns (dsn_without_sslmode,
-    ssl_context_or_None).
+    Railway/Supabase/Neon commonly append it.
     """
     parts = urlsplit(dsn)
     if parts.scheme == "postgres":
@@ -39,6 +204,16 @@ def _normalize_dsn(dsn: str) -> tuple[str, ssl_module.SSLContext | None]:
             ctx.check_hostname = False
             ctx.verify_mode = ssl_module.CERT_NONE
     return dsn2, ctx
+
+
+def _mask_dsn(dsn: str) -> str:
+    try:
+        parts = urlsplit(dsn)
+        host = parts.hostname or "?"
+        port = f":{parts.port}" if parts.port else ""
+        return f"{host}{port}{parts.path or ''}"
+    except ValueError:
+        return "<unparseable dsn>"
 
 
 async def _connect_with_retry(dsn: str, ssl_ctx: ssl_module.SSLContext | None) -> asyncpg.Pool:
@@ -75,41 +250,206 @@ async def _connect_with_retry(dsn: str, ssl_ctx: ssl_module.SSLContext | None) -
     )
 
 
-def _mask_dsn(dsn: str) -> str:
-    from urllib.parse import urlsplit
+# ---------------------------------------------------------------------------
+# Schema
+# ---------------------------------------------------------------------------
+SQLITE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    github_id INTEGER UNIQUE,
+    login TEXT NOT NULL,
+    name TEXT,
+    email TEXT,
+    avatar_url TEXT,
+    is_admin INTEGER NOT NULL DEFAULT 0,
+    is_disabled INTEGER NOT NULL DEFAULT 0,
+    password_hash TEXT,
+    created_at TEXT NOT NULL,
+    last_login_at TEXT
+);
+CREATE TABLE IF NOT EXISTS sessions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    ip TEXT,
+    user_agent TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE TABLE IF NOT EXISTS instances (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    region TEXT NOT NULL DEFAULT 'local',
+    status TEXT NOT NULL DEFAULT 'stopped',
+    provider TEXT,
+    provider_ref TEXT,
+    core_api_token TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    last_active_at TEXT,
+    UNIQUE (user_id, slug)
+);
+CREATE INDEX IF NOT EXISTS idx_instances_user ON instances(user_id);
+CREATE INDEX IF NOT EXISTS idx_instances_status ON instances(status);
+CREATE TABLE IF NOT EXISTS instance_configs (
+    instance_id TEXT PRIMARY KEY,
+    protocol TEXT NOT NULL DEFAULT 'vless-ws',
+    cpu_limit REAL NOT NULL DEFAULT 0.5,
+    memory_mb INTEGER NOT NULL DEFAULT 256,
+    max_processes INTEGER NOT NULL DEFAULT 128,
+    link_quota_bytes INTEGER NOT NULL DEFAULT 0,
+    core_version TEXT NOT NULL DEFAULT 'latest',
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS workers (
+    id TEXT PRIMARY KEY,
+    node_id TEXT UNIQUE NOT NULL,
+    region TEXT NOT NULL DEFAULT 'local',
+    driver TEXT NOT NULL DEFAULT 'process',
+    status TEXT NOT NULL DEFAULT 'unknown',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    cpu_percent REAL,
+    mem_used_mb INTEGER,
+    mem_total_mb INTEGER,
+    disk_used_gb REAL,
+    disk_total_gb REAL,
+    instances INTEGER DEFAULT 0,
+    capacity INTEGER DEFAULT 20,
+    last_heartbeat TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS deployments (
+    id TEXT PRIMARY KEY,
+    instance_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    core_version TEXT NOT NULL DEFAULT 'latest',
+    status TEXT NOT NULL DEFAULT 'queued',
+    error TEXT,
+    node_id TEXT,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    duration_ms INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_deployments_instance ON deployments(instance_id);
+CREATE TABLE IF NOT EXISTS deployment_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    deployment_id TEXT NOT NULL,
+    ts TEXT NOT NULL,
+    level TEXT NOT NULL DEFAULT 'info',
+    message TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_deployment_logs_dep ON deployment_logs(deployment_id);
+CREATE TABLE IF NOT EXISTS domains (
+    id TEXT PRIMARY KEY,
+    instance_id TEXT NOT NULL,
+    domain TEXT UNIQUE NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'http',
+    is_custom INTEGER NOT NULL DEFAULT 0,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    provider_ref TEXT,
+    tls INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_domains_instance ON domains(instance_id);
+CREATE TABLE IF NOT EXISTS metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    instance_id TEXT NOT NULL,
+    ts TEXT NOT NULL,
+    cpu_percent REAL,
+    mem_mb REAL,
+    connections INTEGER,
+    total_bytes INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_metrics_instance_ts ON metrics(instance_id, ts DESC);
+CREATE TABLE IF NOT EXISTS activity_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT,
+    instance_id TEXT,
+    kind TEXT NOT NULL,
+    level TEXT NOT NULL DEFAULT 'info',
+    message TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_activity_user ON activity_events(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_instance ON activity_events(instance_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS oauth_states (
+    state TEXT PRIMARY KEY,
+    redirect TEXT,
+    created_at TEXT NOT NULL
+);
+"""
 
-    try:
-        parts = urlsplit(dsn)
-        host = parts.hostname or "?"
-        port = f":{parts.port}" if parts.port else ""
-        return f"{host}{port}{parts.path or ''}"
-    except ValueError:
-        return "<unparseable dsn>"
+POSTGRES_MIGRATIONS = None  # imported lazily below to reuse the SQL list
 
 
-async def init_pool() -> asyncpg.Pool:
-    global _pool
-    if _pool is None:
-        dsn, ssl_ctx = _normalize_dsn(settings.database_url)
-        _pool = await _connect_with_retry(dsn, ssl_ctx)
-        await migrate(_pool)
-    return _pool
+async def init_pool() -> None:
+    """Initialise the database facade. Selects SQLite when the DSN says so,
+    or when no PostgreSQL URL is configured at all (zero-config mode)."""
+    global db, _sqlite
+    if db is not None:
+        return
+    dsn = (settings.database_url or "").strip()
+    if dsn.startswith("sqlite://"):
+        _sqlite = _SqliteDatabase(dsn)
+        await _sqlite.connect()
+        await _sqlite.conn_executescript(SQLITE_SCHEMA)
+        db = _sqlite
+        log.info("Lunel Console database: embedded SQLite (%s)", _mask_sqlite(dsn))
+        return
+
+    if not dsn:
+        # Zero-config fallback: embedded SQLite in the data directory.
+        from pathlib import Path
+
+        base = None
+        for cand in (Path("/data"), Path.cwd() / ".lunel-data"):
+            try:
+                cand.mkdir(parents=True, exist_ok=True)
+                (cand / ".probe").write_text("ok")
+                (cand / ".probe").unlink()
+                base = cand
+                break
+            except OSError:
+                continue
+        base = base or Path("/tmp/lunel-data")
+        base.mkdir(parents=True, exist_ok=True)
+        sqlite_dsn = f"sqlite:///{base / 'lunel.db'}"
+        _sqlite = _SqliteDatabase(sqlite_dsn)
+        await _sqlite.connect()
+        await _sqlite.conn_executescript(SQLITE_SCHEMA)
+        db = _sqlite
+        log.warning(
+            "no PostgreSQL configured — using embedded SQLite at %s "
+            "(attach a PostgreSQL database and set DATABASE_URL for production scale)",
+            base / "lunel.db",
+        )
+        return
+
+    # PostgreSQL mode
+    normalized, ssl_ctx = _normalize_dsn(dsn)
+    pool = await _connect_with_retry(normalized, ssl_ctx)
+    await migrate(pool)
+    db = _PostgresDatabase(pool)
+    log.info("Lunel Console database: PostgreSQL at %s", _mask_dsn(normalized))
 
 
-async def close_pool() -> None:
-    global _pool
-    if _pool is not None:
-        await _pool.close()
-        _pool = None
+def _mask_sqlite(dsn: str) -> str:
+    return dsn.removeprefix("sqlite://")
 
 
-def get_pool(request) -> asyncpg.Pool:
-    if _pool is None:
-        raise RuntimeError("database pool not initialised")
-    return _pool
+async def close_db() -> None:
+    global db, _sqlite
+    if db is not None:
+        await db.close()
+    db = None
+    _sqlite = None
 
 
 async def migrate(pool: asyncpg.Pool) -> None:
+    from .migrations_pg import MIGRATIONS
+
     await pool.execute(
         "CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())"
     )
@@ -121,154 +461,3 @@ async def migrate(pool: asyncpg.Pool) -> None:
             async with conn.transaction():
                 await conn.execute(sql)
                 await conn.execute("INSERT INTO schema_migrations (name) VALUES ($1)", name)
-
-
-MIGRATIONS: list[tuple[str, str]] = [
-    (
-        "0001_init",
-        """
-        CREATE TABLE IF NOT EXISTS users (
-            id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            github_id     BIGINT UNIQUE NOT NULL,
-            login         TEXT NOT NULL,
-            name          TEXT,
-            email         TEXT,
-            avatar_url    TEXT,
-            is_admin      BOOLEAN NOT NULL DEFAULT FALSE,
-            is_disabled   BOOLEAN NOT NULL DEFAULT FALSE,
-            created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-            last_login_at TIMESTAMPTZ
-        );
-
-        CREATE TABLE IF NOT EXISTS sessions (
-            id         TEXT PRIMARY KEY,
-            user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-            expires_at TIMESTAMPTZ NOT NULL,
-            ip         TEXT,
-            user_agent TEXT
-        );
-        CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
-        CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
-
-        CREATE TABLE IF NOT EXISTS instances (
-            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            name        TEXT NOT NULL,
-            slug        TEXT NOT NULL,
-            region      TEXT NOT NULL DEFAULT 'local',
-            status      TEXT NOT NULL DEFAULT 'stopped',
-                -- queued|preparing|building|starting|health_check|running|
-                -- failed|stopping|stopped|deleted
-            provider    TEXT,            -- 'railway' | 'local' | NULL (auto)
-            provider_ref TEXT,           -- railway service id / node instance ref
-            core_api_token TEXT NOT NULL,
-            created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-            updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-            last_active_at TIMESTAMPTZ,
-            UNIQUE (user_id, slug)
-        );
-        CREATE INDEX IF NOT EXISTS idx_instances_user ON instances(user_id);
-        CREATE INDEX IF NOT EXISTS idx_instances_status ON instances(status);
-
-        CREATE TABLE IF NOT EXISTS instance_configs (
-            instance_id  UUID PRIMARY KEY REFERENCES instances(id) ON DELETE CASCADE,
-            protocol     TEXT NOT NULL DEFAULT 'vless-ws',
-            cpu_limit    REAL NOT NULL DEFAULT 0.5,
-            memory_mb    INT NOT NULL DEFAULT 256,
-            max_processes INT NOT NULL DEFAULT 128,
-            link_quota_bytes BIGINT NOT NULL DEFAULT 0,
-            core_version TEXT NOT NULL DEFAULT 'latest',
-            updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
-        );
-
-        CREATE TABLE IF NOT EXISTS workers (
-            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            node_id     TEXT UNIQUE NOT NULL,
-            region      TEXT NOT NULL DEFAULT 'local',
-            driver      TEXT NOT NULL DEFAULT 'process',
-            status      TEXT NOT NULL DEFAULT 'unknown',   -- online|offline|disabled
-            enabled     BOOLEAN NOT NULL DEFAULT TRUE,
-            cpu_percent REAL,
-            mem_used_mb INT,
-            mem_total_mb INT,
-            disk_used_gb REAL,
-            disk_total_gb REAL,
-            instances   INT DEFAULT 0,
-            capacity    INT DEFAULT 20,
-            last_heartbeat TIMESTAMPTZ,
-            created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-        );
-
-        CREATE TABLE IF NOT EXISTS deployments (
-            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            instance_id UUID NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
-            version     INT NOT NULL,
-            core_version TEXT NOT NULL DEFAULT 'latest',
-            status      TEXT NOT NULL DEFAULT 'queued',
-                -- queued|preparing|building|starting|health_check|running|failed|stopping|stopped
-            error       TEXT,
-            node_id     TEXT,
-            started_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-            finished_at TIMESTAMPTZ,
-            duration_ms INT
-        );
-        CREATE INDEX IF NOT EXISTS idx_deployments_instance ON deployments(instance_id);
-
-        CREATE TABLE IF NOT EXISTS deployment_logs (
-            id            BIGSERIAL PRIMARY KEY,
-            deployment_id UUID NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
-            ts            TIMESTAMPTZ NOT NULL DEFAULT now(),
-            level         TEXT NOT NULL DEFAULT 'info',
-            message       TEXT NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_deployment_logs_dep ON deployment_logs(deployment_id);
-
-        CREATE TABLE IF NOT EXISTS domains (
-            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            instance_id UUID NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
-            domain      TEXT UNIQUE NOT NULL,
-            kind        TEXT NOT NULL DEFAULT 'http',      -- http | tcp
-            is_custom   BOOLEAN NOT NULL DEFAULT FALSE,
-            is_active   BOOLEAN NOT NULL DEFAULT TRUE,
-            provider_ref TEXT,                             -- railway domain id
-            tls         BOOLEAN NOT NULL DEFAULT TRUE,
-            created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-        );
-        CREATE INDEX IF NOT EXISTS idx_domains_instance ON domains(instance_id);
-
-        CREATE TABLE IF NOT EXISTS metrics (
-            id          BIGSERIAL PRIMARY KEY,
-            instance_id UUID NOT NULL,
-            ts          TIMESTAMPTZ NOT NULL DEFAULT now(),
-            cpu_percent REAL,
-            mem_mb      REAL,
-            connections INT,
-            total_bytes BIGINT
-        );
-        CREATE INDEX IF NOT EXISTS idx_metrics_instance_ts ON metrics(instance_id, ts DESC);
-
-        CREATE TABLE IF NOT EXISTS activity_events (
-            id          BIGSERIAL PRIMARY KEY,
-            user_id     UUID,
-            instance_id UUID,
-            kind        TEXT NOT NULL,
-            level       TEXT NOT NULL DEFAULT 'info',
-            message     TEXT NOT NULL,
-            created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-        );
-        CREATE INDEX IF NOT EXISTS idx_activity_user ON activity_events(user_id, created_at DESC);
-        CREATE INDEX IF NOT EXISTS idx_activity_instance ON activity_events(instance_id, created_at DESC);
-        """,
-    ),
-    (
-        "0002_oauth_states",
-        """
-        CREATE TABLE IF NOT EXISTS oauth_states (
-            state      TEXT PRIMARY KEY,
-            redirect   TEXT,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        );
-        """,
-    ),
-]

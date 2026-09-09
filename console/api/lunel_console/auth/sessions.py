@@ -26,12 +26,13 @@ async def create_session(pool: asyncpg.Pool, user_id: str, request: Request) -> 
     token = secrets.token_urlsafe(32)
     await pool.execute(
         """
-        INSERT INTO sessions (id, user_id, expires_at, ip, user_agent)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO sessions (id, user_id, created_at, expires_at, ip, user_agent)
+        VALUES ($1, $2, $3, $4, $5, $6)
         """,
         _hash_token(token),
         user_id,
-        datetime.now(timezone.utc) + SESSION_TTL,
+        datetime.now(timezone.utc),
+        (datetime.now(timezone.utc) + SESSION_TTL),
         request.client.host if request.client else None,
         (request.headers.get("user-agent") or "")[:200],
     )
@@ -58,9 +59,10 @@ async def get_session_user(pool: asyncpg.Pool, request: Request) -> asyncpg.Reco
         SELECT u.id, u.github_id, u.login, u.name, u.email, u.avatar_url,
                u.is_admin, u.is_disabled, s.expires_at
         FROM sessions s JOIN users u ON u.id = s.user_id
-        WHERE s.id = $1 AND s.expires_at > now()
+        WHERE s.id = $1 AND s.expires_at > $2
         """,
         _hash_token(token),
+        datetime.now(timezone.utc),
     )
     if row is None:
         return None

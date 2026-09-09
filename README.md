@@ -50,14 +50,15 @@ GitHub  →  Lunel Console  →  Create Instance  →  Deploy  →  Running  →
 Deploy the repository root as **one service** on any platform that gives you
 a PostgreSQL database and a public domain (Lucity, Railway, Render, …):
 
-1. Fork this repo → create a PostgreSQL database (one click) → add a service
-   from the fork **root** with start command `python main.py` → generate a domain.
-2. Set three variables: `LUNEL_GITHUB_CLIENT_ID`, `LUNEL_GITHUB_CLIENT_SECRET`
-   (callback `https://<your-domain>/auth/callback`), `LUNEL_PUBLIC_URL=https://<your-domain>`.
-3. Open your domain → sign in with GitHub → **Create Instance** → Deploy.
+1. Fork this repo → add a service from the fork **root** with start command
+   `python main.py` → generate a domain → deploy.
+2. Open your domain → the setup screen creates the admin account →
+   **Create Instance** → Deploy.
 
-`DATABASE_URL` is auto-detected, secrets auto-generate, the worker and Core
-launcher run embedded. Full details in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+Zero required variables: embedded SQLite storage and first-run admin setup
+are automatic. Optional: attach a PostgreSQL database (auto-detected via
+`DATABASE_URL`) and GitHub OAuth (`LUNEL_GITHUB_CLIENT_ID` / `..._SECRET`).
+Full details in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ### Local development
 

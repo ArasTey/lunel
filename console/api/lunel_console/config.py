@@ -15,10 +15,9 @@ def _int(name: str, default: int) -> int:
 
 @dataclass
 class Settings:
-    # PostgreSQL DSN, e.g. postgres://lunel:lunel@127.0.0.1:5432/lunel
-    database_url: str = os.environ.get(
-        "LUNEL_DATABASE_URL", "postgres://lunel:lunel@127.0.0.1:5432/lunel"
-    )
+    # Database DSN: PostgreSQL (postgres://… or postgresql://…), sqlite:///path,
+    # or empty (→ embedded SQLite fallback chosen by db.init_pool).
+    database_url: str = os.environ.get("LUNEL_DATABASE_URL", "")
     # GitHub OAuth app credentials
     github_client_id: str = os.environ.get("LUNEL_GITHUB_CLIENT_ID", "")
     github_client_secret: str = os.environ.get("LUNEL_GITHUB_CLIENT_SECRET", "")

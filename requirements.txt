@@ -9,3 +9,4 @@ httpx>=0.27
 websockets>=12.0
 cryptography>=42.0.0
 psutil>=5.9.0
+aiosqlite>=0.20

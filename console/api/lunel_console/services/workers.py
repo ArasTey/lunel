@@ -47,11 +47,14 @@ async def pick_worker(pool, region: str | None = None) -> tuple[str, str] | None
         SELECT node_id, region, status, enabled, instances, capacity
         FROM workers
         WHERE enabled = TRUE AND status = 'online'
-          AND ($1::text IS NULL OR region = $1)
           AND (instances IS NULL OR capacity IS NULL OR instances < capacity)
-        ORDER BY (instances::float / GREATEST(capacity, 1)) ASC
         """,
-        region,
+    )
+    if region:
+        rows = [r for r in rows if r["region"] == region]
+    rows = sorted(
+        rows,
+        key=lambda r: (r["instances"] or 0) / max(r["capacity"] or 1, 1),
     )
     if rows:
         row = rows[0]

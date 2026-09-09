@@ -9,6 +9,8 @@ Endpoints per instance:
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -65,8 +67,10 @@ async def create_domain(instance_id: str, request: Request,
             instance_id,
         )
     await pool.execute(
-        "INSERT INTO domains (instance_id, domain, kind, tls) VALUES ($1, $2, 'path', TRUE)",
-        instance_id, new_token,
+        "INSERT INTO domains (id, instance_id, domain, kind, tls, created_at) "
+        "VALUES ($1, $2, $3, 'path', TRUE, $4)",
+        secrets.token_hex(16), instance_id, new_token,
+        datetime.now(timezone.utc),
     )
 
     # 2. Rotate provider hostname when the provider supports it.
@@ -88,9 +92,10 @@ async def create_domain(instance_id: str, request: Request,
                 )
             dom = await provider.create_domain(inst["provider_ref"])
             await pool.execute(
-                "INSERT INTO domains (instance_id, domain, kind, provider_ref, tls) "
-                "VALUES ($1, $2, 'http', $3, TRUE)",
-                instance_id, dom["domain"], dom["id"],
+                "INSERT INTO domains (id, instance_id, domain, kind, provider_ref, tls, created_at) "
+                "VALUES ($1, $2, $3, 'http', $4, TRUE, $5)",
+                secrets.token_hex(16), instance_id, dom["domain"], dom["id"],
+                datetime.now(timezone.utc),
             )
             provider_domain = dom["domain"]
         except Exception:

@@ -128,7 +128,8 @@ def resolve_database_url() -> tuple[str, str] | None:
       POSTGRESQL_URL, POSTGRES_CONNECTION_STRING
     * libpq variables: PGHOST/PGUSER/PGPASSWORD/PGDATABASE/PGPORT and the
       POSTGRES_HOST/POSTGRES_USER/... variants many platforms inject
-    Returns (dsn, source_name) or None when nothing is configured.
+    Returns (dsn, source_name) or None when nothing is configured (the
+    console then falls back to embedded SQLite — still fully functional).
     """
     from urllib.parse import quote
 
@@ -165,19 +166,18 @@ def setup() -> None:
     port = int(os.environ.get("PORT", os.environ.get("LUNEL_CONSOLE_PORT", "8080")))
     resolved = resolve_database_url()
     if resolved is None:
-        print(
-            "[lunel] FATAL: no PostgreSQL configuration found.\n"
-            "[lunel]   Provision the one-click PostgreSQL in your project and wire it\n"
-            "[lunel]   to this service (its DATABASE_URL / PG* variables must be\n"
-            "[lunel]   present in this service's environment). Checked:\n"
-            "[lunel]   LUNEL_DATABASE_URL, DATABASE_URL, POSTGRES_URL, POSTGRESQL_URL,\n"
-            "[lunel]   POSTGRES_CONNECTION_STRING, PGHOST/POSTGRES_HOST.",
-            file=sys.stderr,
-        )
-        raise SystemExit(1)
-    os.environ["LUNEL_DATABASE_URL"], db_source = resolved
-    print(f"[lunel] PostgreSQL via {db_source} → {_mask_dsn(os.environ['LUNEL_DATABASE_URL'])}",
-          file=sys.stderr)
+        # Zero-config: embedded SQLite inside the data dir. A PostgreSQL
+        # database can be attached later by setting DATABASE_URL.
+        base = _writable_dir([Path("/data"), ROOT / ".lunel-data"]) or Path("/tmp/lunel-data")
+        os.environ["LUNEL_DATABASE_URL"] = f"sqlite:///{base / 'lunel.db'}"
+        print(f"[lunel] no PostgreSQL configured — using embedded SQLite at {base / 'lunel.db'}",
+              file=sys.stderr)
+        print("[lunel]   (attach a PostgreSQL database and set DATABASE_URL / a databaseRef "
+              "for production scale — data migrates via the admin export)", file=sys.stderr)
+    else:
+        os.environ["LUNEL_DATABASE_URL"], db_source = resolved
+        print(f"[lunel] PostgreSQL via {db_source} → {_mask_dsn(os.environ['LUNEL_DATABASE_URL'])}",
+              file=sys.stderr)
     os.environ["LUNEL_SECRET_KEY"] = ensure_secret_key()
     os.environ.setdefault("LUNEL_WORKER_TOKEN", secrets.token_urlsafe(32))
     os.environ.setdefault("LUNEL_PUBLIC_URL", f"http://127.0.0.1:{port}")

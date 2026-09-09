@@ -6,6 +6,8 @@ the server; tokens are used once and discarded (no GitHub API persistence).
 from __future__ import annotations
 
 import httpx
+from datetime import datetime, timezone
+
 from fastapi import HTTPException
 
 from ..config import settings
@@ -74,20 +76,23 @@ async def fetch_identity(access_token: str) -> dict:
 
 
 async def upsert_user(pool, identity: dict):
+    now_iso = datetime.now(timezone.utc)
+    import secrets as _secrets
+
     row = await pool.fetchrow(
         """
-        INSERT INTO users (github_id, login, name, email, avatar_url, last_login_at)
-        VALUES ($1, $2, $3, $4, $5, now())
+        INSERT INTO users (id, github_id, login, name, email, avatar_url, last_login_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         ON CONFLICT (github_id) DO UPDATE
           SET login = EXCLUDED.login,
               name = EXCLUDED.name,
               email = EXCLUDED.email,
               avatar_url = EXCLUDED.avatar_url,
-              last_login_at = now()
+              last_login_at = EXCLUDED.last_login_at
         RETURNING id, is_admin, is_disabled
         """,
-        identity["github_id"], identity["login"], identity["name"],
-        identity["email"], identity["avatar_url"],
+        _secrets.token_hex(16), identity["github_id"], identity["login"], identity["name"],
+        identity["email"], identity["avatar_url"], now_iso,
     )
     if row["is_disabled"]:
         raise HTTPException(status_code=403, detail="account disabled")
