@@ -54,6 +54,106 @@ def _page(title: str, body: str, status: int = 200) -> "HTMLResponse":
 
 import json as _json_mod  # noqa: E402
 
+def _sub_html_page(title: str, configs: list, host: str, sub_path: str,
+                   qr_path: str = "/api/qr-public") -> str:
+    """Marzban-style subscription page: QRs, copy buttons, client links.
+    Browsers get it; client apps are UA-sniffed away to the raw payload."""
+    import html as _html
+
+    esc = _html.escape
+    rows = ""
+    for i, c in enumerate(configs):
+        idx = f"c{i}"
+        rows += f'''
+        <div class="c">
+          <div class="h"><b>{esc(c["label"])}</b><span class="chip">{esc(c["protocol"])}</span></div>
+          <div class="u" id="{idx}">{esc(c["share_url"])}</div>
+          <div class="row"><button onclick="cp('{idx}')">Copy</button><button class="g" onclick="qr('{idx}',this)">QR</button></div>
+          <div class="qr" id="q-{idx}"></div>
+        </div>'''
+    sub_url = f"https://{host}{sub_path}"
+    return f"""<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{esc(title)}</title>
+<style>
+*{{box-sizing:border-box}}
+body{{background:#0a0c10;color:#e7ebf3;font-family:-apple-system,'Segoe UI',Roboto,sans-serif;margin:0;padding:28px 14px 60px}}
+.w{{max-width:560px;margin:0 auto}}
+.b{{display:flex;align-items:center;gap:10px;margin-bottom:16px}}
+.moon{{width:26px;height:26px;color:#d8e0ee}}
+h1{{font-size:20px;margin:0}}
+.f{{font-size:10.5px;letter-spacing:1px;font-weight:700;color:#4ecb95;border:1px solid rgba(78,203,149,.4);border-radius:999px;padding:2px 9px}}
+.s{{color:#9aa4b8;font-size:13px;margin:0 0 16px}}
+.card{{background:#12151c;border:1px solid #1e2430;border-radius:12px;padding:14px;margin-bottom:12px}}
+.h{{display:flex;justify-content:space-between;align-items:center;gap:8px}}
+.h b{{font-size:13.5px}}
+.chip{{font-size:10.5px;color:#9aa4b8;border:1px solid #2a3242;border-radius:999px;padding:1px 7px;font-family:monospace}}
+.u{{font-family:monospace;font-size:11px;color:#9aa4b8;background:#0a0c10;border:1px solid #1e2430;border-radius:7px;padding:7px 9px;margin:8px 0;word-break:break-all;max-height:74px;overflow:auto}}
+.row{{display:flex;gap:7px}}
+button{{padding:6px 13px;border-radius:7px;border:1px solid #d8e0ee;background:#d8e0ee;color:#0b0d11;font-weight:600;font-size:12.5px;cursor:pointer}}
+button.g{{background:#171b24;border-color:#2a3242;color:#e7ebf3}}
+.qr{{margin-top:10px;display:none}}
+.qr svg{{width:210px;height:210px;background:#fff;border-radius:8px;display:block;margin:0 auto}}
+.sub{{background:#12151c;border:1px solid #1e2430;border-radius:12px;padding:14px;margin-bottom:16px}}
+.apps{{display:flex;flex-wrap:wrap;gap:7px;margin-top:9px}}
+.apps a{{font-size:11.5px;color:#6f9bff;text-decoration:none;border:1px solid #2a3242;border-radius:999px;padding:3px 10px}}
+.ft{{text-align:center;color:#5d6678;font-size:11.5px;margin-top:22px}}
+.ft a{{color:#6f9bff}}
+</style></head><body><div class="w">
+<div class="b">
+<svg class="moon" viewBox="0 0 32 32" fill="none"><path d="M16 2.5a13.5 13.5 0 1 0 13.06 17.02 11 11 0 0 1-14.58-14.58A13.6 13.6 0 0 1 16 2.5Z" fill="currentColor"/><path d="M4 29.5h24" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+<h1>Lunel</h1><span class="f">&#9679; FREE</span>
+</div>
+<p class="s"><b>{esc(title)}</b> \u2014 your personal configs. Copy, scan, or import the subscription below.</p>
+<div class="sub">
+  <b style="font-size:13px">Subscription (all protocols)</b>
+  <div class="u" id="sub">https://{esc(host)}{esc(sub_path)}</div>
+  <div class="row"><button onclick="cp('sub')">Copy sub URL</button></div>
+  <div class="apps">
+    <a href="https://github.com/MatsuriDayo/v2rayNG/releases" target="_blank" rel="noopener">v2rayNG</a>
+    <a href="https://github.com/MatsuriDayo/nekoray/releases" target="_blank" rel="noopener">NekoBox</a>
+    <a href="https://apps.apple.com/app/streisand/id6490569503" target="_blank" rel="noopener">Streisand</a>
+    <a href="https://github.com/ArasTey/ArasClient/releases" target="_blank" rel="noopener">ArasClient</a>
+  </div>
+</div>
+{rows}
+<p class="ft">Powered by <a href="https://github.com/ArasTey/lunel" target="_blank" rel="noopener">Lunel</a> &#183; <a href="https://t.me/imArasTey" target="_blank" rel="noopener">@imArasTey</a></p>
+</div>
+<script>
+function cp(id){{
+  var t=document.getElementById(id).textContent;
+  navigator.clipboard.writeText(t).then(function(){{toast('Copied to clipboard')}});
+}}
+function qr(id,btn){{
+  var box=document.getElementById('q-'+id);
+  if(box.style.display==='block'){{box.style.display='none';btn.textContent='QR';return}}
+  var text=document.getElementById(id).textContent;
+  var x=new XMLHttpRequest();
+  x.open('POST','{esc(qr_path)}');
+  x.setRequestHeader('Content-Type','application/json');
+  x.onload=function(){{if(x.status===200){{box.innerHTML=x.responseText;box.style.display='block';btn.textContent='Hide'}}else{{toast('QR failed')}}}};
+  x.send(JSON.stringify({{text:text}}));
+}}
+function toast(m){{
+  var t=document.createElement('div');
+  t.textContent=m;
+  t.style.cssText='position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:#171b24;border:1px solid #2a3242;color:#e7ebf3;padding:9px 16px;border-radius:8px;font-size:13px;z-index:99';
+  document.body.appendChild(t);setTimeout(function(){{t.remove()}},2200);
+}}
+document.querySelectorAll('.qr svg').forEach(function(s){{s.style.background='#fff'}});
+document.querySelectorAll('.u').forEach(function(el){{
+  var m=el.textContent.match(/^(vless|trojan|ss):\/\/([^@]+)@([^\/?#]+)([\s\S]*)$/);
+  if(m){{
+    var ih=m[3].split(':')[0];
+    if(ih==='127.0.0.1'||ih==='localhost'||ih==='0.0.0.0'){{
+      el.textContent=m[1]+'://'+m[2]+'@'+location.host+m[4];
+    }}
+  }}
+}});
+document.getElementById('sub').textContent=location.origin+'{esc(sub_path)}?host='+location.host;
+</script></body></html>"""
+
+
 def _singbox_outbound(url: str) -> dict:
     """vless:// / trojan:// URI -> sing-box outbound. Shadowsocks links pass
     through parsed minimally; unsupported schemes are skipped by caller."""
@@ -204,6 +304,28 @@ async def instance_status_page(token: str, request: Request):
     )
 
 
+@router.post("/i/{token}/api/qr")
+async def instance_qr_public(token: str, request: Request):
+    """QR (SVG) for the subscription page — authorized by the endpoint token."""
+    import io
+
+    import qrcode
+    import qrcode.image.svg
+    from fastapi.responses import Response as _Response
+
+    target = await _resolve_endpoint(request, token)
+    if target is None:
+        raise HTTPException(status_code=404, detail="unknown endpoint")
+    body = await request.json()
+    text = str(body.get("text") or "")[:4096]
+    if not text:
+        raise HTTPException(status_code=400, detail="text required")
+    img = qrcode.make(text, image_factory=qrcode.image.svg.SvgPathImage, box_size=12, border=2)
+    buf = io.BytesIO()
+    img.save(buf)
+    return _Response(content=buf.getvalue(), media_type="image/svg+xml")
+
+
 @router.get("/i/{token}/sub")
 async def instance_subscription(token: str, request: Request):
     """Subscription: ALL protocols of this instance. Auth = endpoint token.
@@ -248,12 +370,28 @@ async def instance_subscription(token: str, request: Request):
                          "Content-Type": "application/json"},
             )
             resp.raise_for_status()
-            links = [c["share_url"] for c in resp.json().get("links", []) if c.get("share_url")]
+            configs = [c for c in resp.json().get("links", []) if c.get("share_url")]
+            links = [c["share_url"] for c in configs]
     except Exception as exc:
         return _page("Unavailable", f"Could not read the instance configs: {str(exc)[:160]}",
                      status=502)
     title = f"Lunel \u00b7 {inst['name']}"
     from fastapi.responses import Response as _Response
+
+    # ── Browser detection: HTML page for people, raw payload for clients ──
+    # Client apps (v2rayNG, NekoBox, sing-box, Clash, Streisand…) send UA
+    # fragments that don't look like a browser. Explicit ?fmt= always wins.
+    ua = (request.headers.get("user-agent") or "").lower()
+    client_markers = ("v2ray", "neko", "sing-box", "singbox", "sfa", "sfi",
+                      "clash", "mihomo", "stash", "flclash", "streisand",
+                      "happ", "karing", "shadowrocket", "aras")
+    looks_like_browser = "mozilla" in ua and not any(m in ua for m in client_markers)
+
+    if looks_like_browser and not fmt:
+        from fastapi.responses import HTMLResponse
+
+        return HTMLResponse(_sub_html_page(title, configs, host, f"/i/{token}/sub",
+                                           qr_path=f"/i/{token}/api/qr"))
 
     def _headers(extra: dict | None = None) -> dict:
         h = {
