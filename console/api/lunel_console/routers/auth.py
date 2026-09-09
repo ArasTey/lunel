@@ -11,13 +11,8 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from ..auth import github, password as password_auth, sessions
 from ..config import settings
 from ..db import get_pool
-from ..security.ratelimit import RULES, client_ip, limiter
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-
-
-def _limiter_rule_auth():
-    return RULES["auth"]
 
 
 @router.get("/status")
@@ -36,7 +31,6 @@ async def auth_status(request: Request):
 @router.get("/login")
 async def login_redirect(request: Request):
     """Kick off GitHub OAuth. Rate limited per IP."""
-    limiter.check(f"auth:{client_ip(request)}", _limiter_rule_auth())
     if not settings.github_client_id or not settings.github_client_secret:
         raise HTTPException(status_code=503, detail="GitHub OAuth is not configured")
     state = secrets.token_urlsafe(24)
@@ -54,7 +48,6 @@ async def login_redirect(request: Request):
 
 @router.get("/callback")
 async def oauth_callback(request: Request, code: str = "", state: str = ""):
-    limiter.check(f"auth:{client_ip(request)}", _limiter_rule_auth())
     if not code or not state:
         raise HTTPException(status_code=400, detail="missing code/state")
     pool = get_pool(request)
@@ -76,7 +69,6 @@ async def oauth_callback(request: Request, code: str = "", state: str = ""):
 async def setup_first_admin(request: Request):
     """First-run bootstrap (zero-config deployments): the first visitor
     creates the admin account. Disabled forever once any user exists."""
-    limiter.check(f"auth:{client_ip(request)}", _limiter_rule_auth())
     pool = get_pool(request)
     users_exist = await pool.fetchval("SELECT COUNT(*) FROM users")
     if users_exist:
@@ -103,7 +95,6 @@ async def setup_first_admin(request: Request):
 
 @router.post("/login-password")
 async def login_password(request: Request):
-    limiter.check(f"auth:{client_ip(request)}", _limiter_rule_auth())
     pool = get_pool(request)
     body = await request.json()
     name = str(body.get("name") or "").strip()

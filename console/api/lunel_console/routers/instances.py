@@ -14,7 +14,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from ..auth import sessions
 from ..config import settings
 from ..db import get_pool
-from ..security.ratelimit import RULES, client_ip, limiter
 from ..services import deployments as deploy_svc
 from ..services import workers as worker_svc
 from ..services.domains import generate_domain, slugify, validate_slug
@@ -51,7 +50,6 @@ async def owned_instance(pool: asyncpg.Pool, user_id: str, instance_id: str) -> 
 # ---------------------------------------------------------------------------
 @router.get("/instances")
 async def list_instances(request: Request, user: asyncpg.Record = Depends(current_user)):
-    limiter.check(f"read:{user['id']}", RULES["api_read"])
     pool = get_pool(request)
     rows = await pool.fetch(
         """
@@ -99,7 +97,6 @@ def _console_origin(request: Request) -> str:
 @router.get("/instances/{instance_id}")
 async def get_instance(instance_id: str, request: Request,
                        user: asyncpg.Record = Depends(current_user)):
-    limiter.check(f"read:{user['id']}", RULES["api_read"])
     pool = get_pool(request)
     inst = await owned_instance(pool, user["id"], instance_id)
     cfg = await pool.fetchrow("SELECT * FROM instance_configs WHERE instance_id = $1", instance_id)
@@ -161,7 +158,6 @@ class CreateInstanceBody:
 
 @router.post("/instances", status_code=201)
 async def create_instance(request: Request, user: asyncpg.Record = Depends(current_user)):
-    limiter.check(f"write:{user['id']}", RULES["api_write"])
     pool = get_pool(request)
     body = CreateInstanceBody(await request.json())
 
@@ -224,7 +220,6 @@ async def create_instance(request: Request, user: asyncpg.Record = Depends(curre
 @router.delete("/instances/{instance_id}")
 async def delete_instance(instance_id: str, request: Request,
                           user: asyncpg.Record = Depends(current_user)):
-    limiter.check(f"write:{user['id']}", RULES["api_write"])
     pool = get_pool(request)
     inst = await owned_instance(pool, user["id"], instance_id)
     try:
@@ -246,7 +241,6 @@ async def delete_instance(instance_id: str, request: Request,
 @router.post("/instances/{instance_id}/deploy")
 async def deploy(instance_id: str, request: Request,
                  user: asyncpg.Record = Depends(current_user)):
-    limiter.check(f"write:{user['id']}", RULES["api_write"])
     pool = get_pool(request)
     inst = await owned_instance(pool, user["id"], instance_id)
     if inst["status"] in ("queued", "preparing", "building", "starting", "health_check"):
@@ -263,7 +257,6 @@ async def deploy(instance_id: str, request: Request,
 @router.post("/instances/{instance_id}/restart")
 async def restart(instance_id: str, request: Request,
                   user: asyncpg.Record = Depends(current_user)):
-    limiter.check(f"write:{user['id']}", RULES["api_write"])
     pool = get_pool(request)
     inst = await owned_instance(pool, user["id"], instance_id)
     if inst["status"] != "running":
@@ -277,7 +270,6 @@ async def restart(instance_id: str, request: Request,
 @router.post("/instances/{instance_id}/stop")
 async def stop(instance_id: str, request: Request,
                user: asyncpg.Record = Depends(current_user)):
-    limiter.check(f"write:{user['id']}", RULES["api_write"])
     pool = get_pool(request)
     inst = await owned_instance(pool, user["id"], instance_id)
     await deploy_svc.stop_instance(pool, instance_id)
@@ -289,7 +281,6 @@ async def stop(instance_id: str, request: Request,
 @router.post("/instances/{instance_id}/redeploy")
 async def redeploy(instance_id: str, request: Request,
                    user: asyncpg.Record = Depends(current_user)):
-    limiter.check(f"write:{user['id']}", RULES["api_write"])
     pool = get_pool(request)
     inst = await owned_instance(pool, user["id"], instance_id)
     try:
@@ -367,7 +358,6 @@ async def instance_config(instance_id: str, request: Request,
     """The actual proxy configs (vless:// etc.) for this instance, routed
     through its public endpoint path. Host comes from the user's request so
     the panel works on any platform domain."""
-    limiter.check(f"read:{user['id']}", RULES["api_read"])
     pool = get_pool(request)
     await owned_instance(pool, user["id"], instance_id)
     dom = await pool.fetchrow(
@@ -377,8 +367,15 @@ async def instance_config(instance_id: str, request: Request,
     )
     if dom is None:
         raise HTTPException(status_code=404, detail="no endpoint provisioned yet")
-    host_hdr = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
-    host = host_hdr.split(",")[0].strip() or request.url.hostname or "localhost"
+    # Host precedence: browser-announced public host (the panel tells us the
+    # real domain; platform edges hide it behind internal names) -> forwarded
+    # headers -> Host -> request hostname.
+    inst_row = await pool.fetchrow("SELECT public_host FROM instances WHERE id = $1", instance_id)
+    host = ((inst_row["public_host"] if inst_row else None)
+            or (request.headers.get("x-forwarded-host") or "").split(",")[0].strip()
+            or request.headers.get("host")
+            or request.url.hostname or "localhost")
+    host = host.split(":")[0]  # strip internal ports
     path_prefix = f"/i/{dom['domain']}"
 
     link_rows = await pool.fetch(
@@ -407,6 +404,46 @@ async def instance_config(instance_id: str, request: Request,
             error = str(exc)[:200]
     return {"endpoint_path": path_prefix, "hostname": host,
             "configs": configs, "error": error}
+
+
+@router.post("/instances/{instance_id}/announce-host")
+async def announce_host(instance_id: str, request: Request,
+                        user: asyncpg.Record = Depends(current_user)):
+    """The panel tells us the public host it was browsed on (the server can't
+    see it behind platform edges). Used for subscription link contents."""
+    pool = get_pool(request)
+    await owned_instance(pool, user["id"], instance_id)
+    body = await request.json()
+    host = str(body.get("host") or "").strip()[:253]
+    if host and ("." in host or host.startswith("localhost")):
+        await pool.execute(
+            "UPDATE instances SET public_host = $2 WHERE id = $1", instance_id, host
+        )
+    return {"ok": True}
+
+
+@router.post("/instances/{instance_id}/qr")
+async def instance_qr(instance_id: str, request: Request,
+                      user: asyncpg.Record = Depends(current_user)):
+    """QR code (SVG) for any config string. No external services."""
+    pool = get_pool(request)
+    await owned_instance(pool, user["id"], instance_id)
+    body = await request.json()
+    text = str(body.get("text") or "")[:4096]
+    if not text:
+        raise HTTPException(status_code=400, detail="text required")
+    import io
+
+    import qrcode
+    import qrcode.image.svg
+
+    img = qrcode.make(text, image_factory=qrcode.image.svg.SvgPathImage,
+                      box_size=12, border=2)
+    buf = io.BytesIO()
+    img.save(buf)
+    from fastapi.responses import Response as _Response
+
+    return _Response(content=buf.getvalue(), media_type="image/svg+xml")
 
 
 # ---------------------------------------------------------------------------

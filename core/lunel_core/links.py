@@ -38,7 +38,7 @@ def generate_share_link(link: Link, host: str, remark_prefix: str = "Lunel",
     if proto == "shadowsocks":
         password = link.ss_password or ""
         cipher = link.ss_cipher or DEFAULT_CIPHER
-        return generate_ss_link(host, 443, cipher, password, remark)
+        return generate_ss_link(host, 443, cipher, password, remark, path_prefix=p)
 
     if proto == "trojan-ws":
         params = {

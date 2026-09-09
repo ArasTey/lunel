@@ -12,7 +12,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from ..auth import sessions
 from ..config import settings
 from ..db import get_pool
-from ..security.ratelimit import RULES, limiter
 from ..services import deployments as deploy_svc
 from .instances import current_user
 

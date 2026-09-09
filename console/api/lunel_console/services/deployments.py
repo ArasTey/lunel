@@ -317,23 +317,30 @@ async def _provision_default_link(pool: asyncpg.Pool, deployment_id: str,
         node_url = worker_svc.worker_url_for(
             (dep["node_id"] if dep else None) or _settings.default_worker_node
         )
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
-                f"{node_url.rstrip('/')}/worker/api/instances/{instance_id}"
-                f"/proxy/core/api/links",
-                json={"label": f"{row['name']} main", "protocol": row["protocol"]},
-                headers={"Authorization": f"Bearer {_settings.worker_token}",
-                         "Content-Type": "application/json"},
-            )
-            resp.raise_for_status()
-            link_uuid = resp.json()["uuid"]
-        await pool.execute(
-            "INSERT INTO instance_links (id, instance_id, link_uuid, label, created_at) "
-            "VALUES ($1, $2, $3, $4, $5)",
-            secrets.token_hex(16), instance_id, link_uuid,
-            f"{row['name']} main", datetime.now(timezone.utc),
-        )
-        await _log(pool, deployment_id, f"Default link provisioned ({row['protocol']})", "ok")
+        all_protocols = [
+            ("vless-ws", "VLESS"), ("trojan-ws", "Trojan"),
+            ("shadowsocks", "Shadowsocks"), ("xhttp-packet-up", "xHTTP"),
+        ]
+        created = 0
+        async with httpx.AsyncClient(timeout=30) as client:
+            for proto, pretty in all_protocols:
+                resp = await client.post(
+                    f"{node_url.rstrip('/')}/worker/api/instances/{instance_id}"
+                    f"/proxy/core/api/links",
+                    json={"label": f"{row['name']} · {pretty}", "protocol": proto},
+                    headers={"Authorization": f"Bearer {_settings.worker_token}",
+                             "Content-Type": "application/json"},
+                )
+                resp.raise_for_status()
+                link_uuid = resp.json()["uuid"]
+                await pool.execute(
+                    "INSERT INTO instance_links (id, instance_id, link_uuid, label, created_at) "
+                    "VALUES ($1, $2, $3, $4, $5)",
+                    secrets.token_hex(16), instance_id, link_uuid,
+                    f"{row['name']} · {pretty}", datetime.now(timezone.utc),
+                )
+                created += 1
+        await _log(pool, deployment_id, f"Provisioned {created} links (all protocols)", "ok")
     except Exception as exc:
         await _log(pool, deployment_id, f"link provisioning failed: {exc}", "warn")
 

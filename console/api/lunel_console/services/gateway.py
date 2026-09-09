@@ -109,6 +109,67 @@ async def instance_status_page(token: str, request: Request):
     )
 
 
+@router.get("/i/{token}/sub")
+async def instance_subscription(token: str, request: Request):
+    """Subscription: ALL protocols of this instance as a base64 client-import
+    body (v2rayNG / NekoBox → import from URL). Auth is the endpoint token
+    itself; the content host comes from ?host=, the panel-announced public
+    host, or the request host — in that order."""
+    import base64 as _b64
+
+    import httpx as _httpx
+
+    from ..config import settings as _settings
+
+    target = await _resolve_endpoint(request, token)
+    if target is None:
+        return _page(
+            "Endpoint not found",
+            "This subscription doesn't exist or its instance was removed. "
+            "Create a new instance in the Lunel panel and copy its "
+            "subscription URL from the Config tab.",
+            status=404,
+        )
+    pool = get_pool(request)
+    inst = await pool.fetchrow(
+        "SELECT name, public_host, status FROM instances WHERE id = $1", target["instance_id"]
+    )
+    if inst is None or inst["status"] != "running":
+        return _page("Instance not running",
+                     "The subscription will work once the instance is running.", status=503)
+    host = (request.query_params.get("host")
+            or inst["public_host"]
+            or (request.headers.get("x-forwarded-host") or "").split(",")[0].strip()
+            or request.headers.get("host") or "").split(":")[0]
+    if not host:
+        return _page("Missing host", "Append ?host=<your-domain> to this URL.", status=400)
+    try:
+        async with _httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                f"{target['worker_url'].rstrip('/')}{target['upstream']}/core/api/share",
+                json={"host": host, "path_prefix": f"/i/{token}", "uuids": []},
+                headers={"Authorization": f"Bearer {_settings.worker_token}",
+                         "Content-Type": "application/json"},
+            )
+            resp.raise_for_status()
+            links = [c["share_url"] for c in resp.json().get("links", []) if c.get("share_url")]
+    except Exception as exc:
+        return _page("Unavailable", f"Could not read the instance configs: {str(exc)[:160]}",
+                     status=502)
+    body = _b64.b64encode("\n".join(links).encode()).decode()
+    title = _b64.b64encode(f"Lunel · {inst['name']}".encode()).decode()
+    from fastapi.responses import Response as _Response
+
+    return _Response(
+        content=body, media_type="text/plain",
+        headers={
+            "profile-title": f"base64:{title}",
+            "subscription-userinfo": "upload=0; download=0; total=0; expire=0",
+            "profile-update-interval": "24",
+        },
+    )
+
+
 @router.api_route("/i/{token}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
 async def instance_http_gateway(token: str, path: str, request: Request):
     target = await _resolve_endpoint(request, token)

@@ -292,6 +292,7 @@ CREATE TABLE IF NOT EXISTS instances (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     last_active_at TEXT,
+    public_host TEXT,
     UNIQUE (user_id, slug)
 );
 CREATE INDEX IF NOT EXISTS idx_instances_user ON instances(user_id);

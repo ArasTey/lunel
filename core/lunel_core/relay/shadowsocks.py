@@ -171,13 +171,15 @@ def parse_socks5_addr(buf: bytes) -> tuple[str, int, int]:
     return address, port, pos
 
 
-def generate_ss_link(host: str, port: int, cipher: str, password: str, remark: str) -> str:
+def generate_ss_link(host: str, port: int, cipher: str, password: str, remark: str,
+                     path_prefix: str = "") -> str:
     """ss://base64(method:password)@host:port with v2ray-plugin (ws+tls)."""
     import base64
     from urllib.parse import quote
 
     userinfo = base64.urlsafe_b64encode(f"{cipher}:{password}".encode()).decode().rstrip("=")
-    plugin = quote(f"v2ray-plugin;tls;mux=0;path=/ss-ws;host={host}")
+    p = path_prefix.rstrip("/")
+    plugin = quote(f"v2ray-plugin;tls;mux=0;path={p}/ss-ws;host={host}")
     return f"ss://{userinfo}@{host}:{port}/?plugin={plugin}#{quote(remark)}"
 
 

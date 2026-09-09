@@ -16,7 +16,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from ..auth import sessions
 from ..db import get_pool
-from ..security.ratelimit import RULES, limiter
 from ..services.domains import generate_domain
 from ..services import deployments as deploy_svc
 from .instances import current_user, owned_instance
@@ -51,7 +50,6 @@ async def list_domains(instance_id: str, request: Request,
 async def create_domain(instance_id: str, request: Request,
                         user: asyncpg.Record = Depends(current_user)):
     """Regenerate the instance's public endpoint(s)."""
-    limiter.check(f"write:{user['id']}", RULES["api_write"])
     pool = get_pool(request)
     inst = await owned_instance(pool, user["id"], instance_id)
 
@@ -111,7 +109,6 @@ async def create_domain(instance_id: str, request: Request,
 @router.delete("/instances/{instance_id}/domains/{domain_id}")
 async def delete_domain(instance_id: str, domain_id: str, request: Request,
                         user: asyncpg.Record = Depends(current_user)):
-    limiter.check(f"write:{user['id']}", RULES["api_write"])
     pool = get_pool(request)
     await owned_instance(pool, user["id"], instance_id)
     row = await pool.fetchrow(

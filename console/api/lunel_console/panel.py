@@ -120,6 +120,10 @@ a{color:var(--blu);text-decoration:none}
 .fn{color:var(--fnt);font-size:11px;margin-top:14px}
 .copy{border:none;background:none;color:var(--fnt);cursor:pointer;font-family:var(--mono);font-size:11px;padding:2px 4px}
 .copy:hover{color:var(--tx)}
+.qr-ov{position:fixed;inset:0;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;z-index:200}
+.qr-c{background:var(--sur);border:1px solid var(--bd2);border-radius:12px;padding:20px;text-align:center;max-width:340px}
+.qr-c .qrbox svg{width:240px;height:240px;display:block;margin:8px auto;background:#fff;border-radius:8px}
+.free{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;letter-spacing:1px;font-weight:700;color:var(--grn);border:1px solid rgba(78,203,149,.4);border-radius:999px;padding:2px 9px;text-transform:uppercase}
 </style>
 </head>
 <body>
@@ -190,6 +194,7 @@ function shell(nav){
     (USER.is_admin?'<button class="ni '+(nav==="admin"?"act":"")+'" data-nav="admin">'+ic("gear")+' Admin</button>':"")+
     (LINKS.github?'<a class="ni" href="'+LINKS.github+'" target="_blank" rel="noopener">'+ic("gh")+' GitHub</a>':"")+
     (LINKS.telegram?'<a class="ni" href="'+esc(LINKS.telegram)+'" target="_blank" rel="noopener">'+ic("tg")+' Telegram</a>':"")+
+    '<div style="padding:6px 8px"><span class="free">● Free</span></div>'+
     '<div class="sbft"><div class="who"><b>'+esc(USER.name||USER.login)+'</b><span>@'+esc(USER.login)+'</span></div>'+
     '<button class="btn sm" style="margin-left:auto" id="lg">Sign out</button></div></aside>'+
     '<div class="main"><div class="topbar">'+MARK+'<b style="font-size:14px">Lunel</b>'+
@@ -342,18 +347,25 @@ function viewInst(id){
   function draw(){
     var b=$("#tb");if(!b)return;
     if(tab==="config"){
-      b.innerHTML='<div class="card"><div class="row" style="justify-content:space-between"><h3>Your proxy config</h3><button class="btn sm" id="cf-r">Refresh</button></div><div id="cf-b" class="mut">Loading…</div></div>';
+      b.innerHTML='<div class="card"><div class="row" style="justify-content:space-between"><h3>Subscription <span class="free" style="margin-left:6px">Free</span></h3><button class="btn sm" id="cf-r">Refresh</button></div>'+
+        '<p class="mut" style="font-size:12.5px;margin:6px 0 10px">One URL with <b>all 4 protocols</b> (VLESS, Trojan, Shadowsocks, xHTTP). In v2rayNG/NekoBox: Subscriptions → Add → paste → update.</p>'+
+        '<div class="row"><div class="mono grow" id="suburl" style="background:var(--bg2);border:1px solid var(--bd);border-radius:7px;padding:8px 10px;word-break:break-all"></div><button class="btn sm pri" id="subc">Copy</button><a class="btn sm" id="subo" target="_blank" rel="noopener">Open</a></div></div>'+
+        '<div class="card" style="margin-top:14px"><div class="row" style="justify-content:space-between"><h3>Individual configs</h3><button class="btn sm" id="cf-r">Refresh</button></div><div id="cf-b" class="mut">Loading…</div></div>';
       function loadCfg(){
+        // tell the server the public host we're browsing on (edge hides it)
+        api("POST","/api/instances/"+id+"/announce-host",{host:location.host}).catch(function(){});
         $("#cf-b").innerHTML='<span class="mut">Loading…</span>';
         api("GET","/api/instances/"+id+"/config").then(function(d){
+          var subUrl=location.origin+"/i/"+(d.endpoint_path||"").replace("/i/","")+"/sub";
+          if(d.endpoint_path){$("#suburl").textContent=subUrl;
+            $("#subc").onclick=function(){navigator.clipboard&&navigator.clipboard.writeText(subUrl).then(function(){toast("Subscription URL copied","ok",2500)})};
+            $("#subo").href=subUrl+"?host="+location.host;}
           if(!d.configs||!d.configs.length){
-            $("#cf-b").innerHTML='<span class="ftx">'+esc(d.error||"No config yet — if the instance shows Running, press Redeploy once (instances created before this fix get their link on redeploy).")+"</span>";
+            $("#cf-b").innerHTML='<span class="ftx">'+esc(d.error||"No configs yet — if the instance shows Running, press Redeploy once (instances created before this fix get their links on redeploy).")+"</span>";
             return;
           }
-          // Build the client-facing URL in the BROWSER: the browser knows the
-          // real public host; server-side headers may only see internal names.
           var pubHost=location.host;
-          $("#cf-b").innerHTML=d.configs.map(function(c){
+          $("#cf-b").innerHTML=d.configs.map(function(c,idx){
             var url=c.share_url;
             var m=c.share_url.match(/^(vless|trojan):\/\/([^@]+)@([^\/?#]+)([^#]*)/);
             if(m){
@@ -365,10 +377,20 @@ function viewInst(id){
             }
             return '<div style="margin-top:12px"><div class="row" style="justify-content:space-between"><b style="font-size:12.5px">'+esc(c.label)+'</b><span class="chip">'+esc(c.protocol)+"</span></div>"+
               '<div class="mono" style="margin-top:5px;background:var(--bg2);border:1px solid var(--bd);border-radius:7px;padding:8px 10px;word-break:break-all;max-height:90px;overflow:auto">'+esc(url)+"</div>"+
-              '<div class="row" style="margin-top:6px"><button class="btn sm pri" data-copy="'+esc(url)+'">Copy config</button></div></div>';
+              '<div class="row" style="margin-top:6px"><button class="btn sm pri" data-copy="'+esc(url)+'">Copy</button><button class="btn sm" data-qr="'+esc(url)+'">QR</button></div></div>';
           }).join("");
           Array.prototype.forEach.call($("#cf-b").querySelectorAll("[data-copy]"),function(btn){
-            btn.onclick=function(){navigator.clipboard&&navigator.clipboard.writeText(btn.dataset.copy).then(function(){toast("Config copied — in v2rayNG/NekoBox: Import config from clipboard","ok",5000)})}});
+            btn.onclick=function(){navigator.clipboard&&navigator.clipboard.writeText(btn.dataset.copy).then(function(){toast("Copied — v2rayNG: Import from clipboard","ok",4000)})}});
+          Array.prototype.forEach.call($("#cf-b").querySelectorAll("[data-qr]"),function(btn){
+            btn.onclick=function(){
+              var ov=document.createElement("div");ov.className="qr-ov";
+              ov.innerHTML='<div class="qr-c"><b style="font-size:13px">Scan with your client</b><div class="qrbox" style="margin:10px 0"><span class="sp1"></span></div><button class="btn sm" id="qrx">Close</button></div>';
+              document.body.appendChild(ov);
+              ov.onclick=function(e){if(e.target===ov)ov.remove()};
+              $("#qrx",ov).onclick=function(){ov.remove()};
+              api("POST","/api/instances/"+id+"/qr",{text:btn.dataset.qr}).then(function(svg){
+                $(".qrbox",ov).innerHTML=svg}).catch(function(e){ov.remove();toast(e.message,"err")});
+            }});
         }).catch(function(e){$("#cf-b").innerHTML='<span class="ftx">'+esc(e.message)+"</span>"});
       }
       $("#cf-r").onclick=loadCfg;loadCfg();
