@@ -35,6 +35,23 @@ HOP_BY_HOP = {
     "authorization",  # replaced with the worker token below
 }
 
+
+FRIENDLY_404 = """<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Lunel</title>
+<style>body{{background:#0a0c10;color:#e7ebf3;font-family:-apple-system,Segoe UI,Roboto,sans-serif;
+display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}}
+.c{{max-width:420px;text-align:center;padding:28px;border:1px solid #1e2430;border-radius:12px;background:#12151c}}
+h2{{margin:0 0 8px}}p{{color:#9aa4b8;font-size:13.5px;line-height:1.55}}
+code{{background:#10131a;border:1px solid #2a3242;border-radius:6px;padding:1px 6px;font-size:12px}}</style></head>
+<body><div class="c"><h2>{title}</h2><p>{body}</p></div></body></html>"""
+
+
+def _page(title: str, body: str, status: int = 200) -> "HTMLResponse":
+    from fastapi.responses import HTMLResponse
+
+    return HTMLResponse(FRIENDLY_404.format(title=title, body=body), status_code=status)
+
+
 router = APIRouter(include_in_schema=False)
 
 
@@ -68,11 +85,41 @@ async def _resolve_endpoint(request: Request, token: str) -> dict | None:
     }
 
 
+@router.get("/i/{token}")
+async def instance_status_page(token: str, request: Request):
+    """Browser-friendly view of a proxy endpoint (the path itself is for
+    proxy clients, not people)."""
+    target = await _resolve_endpoint(request, token)
+    if target is None:
+        return _page(
+            "Endpoint not found",
+            "This endpoint doesn't exist or its instance was removed. "
+            "If you recently redeployed Lunel without a persistent volume, "
+            "create a new instance in the panel and copy its fresh config "
+            "from the <b>Config</b> tab.",
+            status=404,
+        )
+    return _page(
+        "This endpoint is live",
+        "This address is the private transport path for your proxy client — "
+        "there is no web page here. Open the Lunel panel, choose your "
+        "instance, open the <b>Config</b> tab and copy the "
+        "<code>vless://</code> link into your client (v2rayNG, NekoBox, "
+        "Streisand, …).",
+    )
+
+
 @router.api_route("/i/{token}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
 async def instance_http_gateway(token: str, path: str, request: Request):
     target = await _resolve_endpoint(request, token)
     if target is None:
-        raise HTTPException(status_code=404, detail="unknown or inactive instance endpoint")
+        return _page(
+            "Endpoint not found",
+            "This endpoint doesn't exist or its instance is not running. "
+            "Check the panel — if the instance is Running, copy the fresh "
+            "config from its <b>Config</b> tab.",
+            status=404,
+        )
 
     worker_url = target["worker_url"].rstrip("/")
     url = f"{worker_url}{target['upstream']}/{path}"
