@@ -143,22 +143,33 @@ var sp=document.createElement("span");sp.className="st "+cls;sp.innerHTML='<span
 function copyBtn(text){var b=document.createElement("button");b.className="copy";b.textContent="copy";
 b.onclick=function(e){e.stopPropagation();if(navigator.clipboard){navigator.clipboard.writeText(text).then(function(){toast("Copied","ok",1200)})}else{toast("Copy not supported","err")}};return b}
 // ───────────────────────────── api ─────────────────────────────
-function api(method,path,body){
+function api(method,path,body,retry){
   var h={"Content-Type":"application/json"};
   if(CSRF)h["X-Lunel-CSRF"]=CSRF;
   return fetch(path,{method:method,headers:h,credentials:"same-origin",body:body!==undefined?JSON.stringify(body):undefined})
   .then(function(r){return r.json().catch(function(){return{}}).then(function(d){
-    if(!r.ok){if(r.status===401){render();throw new Error("session expired")}throw new Error((d&&d.detail)||("HTTP "+r.status))}
+    if(!r.ok){
+      if(r.status===401&&!retry&&!path.startsWith("/auth")){
+        // confirm the session really died before bouncing the user
+        return fetch("/auth/me",{credentials:"same-origin"}).then(function(m){return m.json()}).then(function(me){
+          if(me.authenticated){CSRF=me.csrf_token;return api(method,path,body,true)}
+          USER=null;render();throw new Error("please sign in again");
+        });
+      }
+      throw new Error((d&&d.detail)||("HTTP "+r.status));
+    }
     return d})})}
 
 // ───────────────────────────── icons ─────────────────────────────
 function ic(n){var p={dash:'<path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"/>',
-plus:'<path d="M12 5v14M5 12h14"/>',gear:'<path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/>'};
+plus:'<path d="M12 5v14M5 12h14"/>',gear:'<path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/>',
+gh:'<path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" fill="currentColor" stroke="none"/>',
+tg:'<path d="M21.9 4.6 18.9 19c-.2 1-.8 1.2-1.7.8l-4.6-3.4-2.2 2.1c-.3.3-.5.5-1 .5l.4-4.7L18.6 6c.4-.3-.1-.5-.6-.2L7.3 12.4l-4.3-1.4c-.9-.3-.9-.9.2-1.3L20.7 3.3c.8-.3 1.5.2 1.2 1.3Z" fill="currentColor" stroke="none"/>'};
 return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px">'+p[n]+"</svg>"}
 var MARK='<svg class="bm" viewBox="0 0 32 32" fill="none"><path d="M16 2.5a13.5 13.5 0 1 0 13.06 17.02 11 11 0 0 1-14.58-14.58A13.6 13.6 0 0 1 16 2.5Z" fill="currentColor"/><path d="M4 29.5h24" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
 
 // ───────────────────────────── shell/state ─────────────────────────────
-var USER=null, cleanup=null, pollTimer=null;
+var USER=null, cleanup=null, pollTimer=null, LINKS={github:"https://github.com/ArasTey/lunel",telegram:""};
 function setCleanup(fn){if(cleanup)cleanup();cleanup=fn||null}
 function stopPoll(){if(pollTimer){clearInterval(pollTimer);pollTimer=null}}
 function shell(nav){
@@ -169,6 +180,8 @@ function shell(nav){
     '<button class="ni '+(nav==="dash"?"act":"")+'" data-nav="dash">'+ic("dash")+' Dashboard</button>'+
     '<button class="ni '+(nav==="new"?"act":"")+'" data-nav="new">'+ic("plus")+' Create Instance</button>'+
     (USER.is_admin?'<button class="ni '+(nav==="admin"?"act":"")+'" data-nav="admin">'+ic("gear")+' Admin</button>':"")+
+    (LINKS.github?'<a class="ni" href="'+LINKS.github+'" target="_blank" rel="noopener">'+ic("gh")+' GitHub</a>':"")+
+    (LINKS.telegram?'<a class="ni" href="'+esc(LINKS.telegram)+'" target="_blank" rel="noopener">'+ic("tg")+' Telegram</a>':"")+
     '<div class="sbft"><div class="who"><b>'+esc(USER.name||USER.login)+'</b><span>@'+esc(USER.login)+'</span></div>'+
     '<button class="btn sm" style="margin-left:auto" id="lg">Sign out</button></div></aside>'+
     '<div class="main"><div class="topbar">'+MARK+'<b style="font-size:14px">Lunel</b>'+
@@ -488,7 +501,9 @@ function viewAdmin(){
 function render(){
   api("GET","/auth/me").then(function(me){
     if(!me.authenticated){viewLogin();return}
-    USER=me.user;CSRF=me.csrf_token;viewDash();
+    USER=me.user;CSRF=me.csrf_token;
+    if(me.links){LINKS.github=me.links.github||LINKS.github;LINKS.telegram=me.links.telegram||""}
+    viewDash();
   }).catch(function(e){
     $("#app").innerHTML='<div class="lw"><div class="lc"><div class="card"><b>Lunel Console failed to load</b><p class="mut">'+esc(e.message)+"</p></div></div></div>";
   });

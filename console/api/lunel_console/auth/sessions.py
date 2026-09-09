@@ -14,8 +14,8 @@ from fastapi import HTTPException, Request
 from ..config import settings
 
 SESSION_COOKIE = "lunel_session"
-SESSION_TTL = timedelta(days=7)
-MAX_SESSIONS_PER_USER = 20
+SESSION_TTL = timedelta(days=30)
+MAX_SESSIONS_PER_USER = 100
 
 
 def _hash_token(token: str) -> str:

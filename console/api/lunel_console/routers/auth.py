@@ -169,4 +169,8 @@ async def me(request: Request):
             "is_admin": bool(user["is_admin"]),
         },
         "csrf_token": sessions.csrf_token(request),
+        "links": {
+            "github": "https://github.com/ArasTey/lunel",
+            "telegram": settings.telegram_channel or "",
+        },
     }
