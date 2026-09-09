@@ -41,7 +41,15 @@ a{color:var(--blu);text-decoration:none}
 .sbft .who span{font-size:11px;color:var(--fnt)}
 .main{min-width:0}.ct{padding:26px 30px 70px;max-width:1100px;margin:0 auto}
 .topbar{display:none}
-@media(max-width:840px){.shell{grid-template-columns:1fr}.sb{display:none}
+.menu-btn{display:none}
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:55;display:none}
+.scrim.on{display:block}
+@media(max-width:840px){
+  .shell{grid-template-columns:1fr}
+  .menu-btn{display:inline-flex;margin-left:auto}
+  .sb{display:flex;position:fixed;top:0;left:0;bottom:0;width:250px;z-index:60;
+      transform:translateX(-105%);transition:transform .22s ease;box-shadow:none}
+  .sb.open{transform:translateX(0);box-shadow:0 0 44px rgba(0,0,0,.55)}
 .topbar{display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:30;background:rgba(10,12,16,.94);border-bottom:1px solid var(--bd);padding:12px 14px}
 .ct{padding:16px 12px 90px}
 .bnav{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:30;background:rgba(13,16,22,.97);border-top:1px solid var(--bd);padding:6px 6px calc(6px + env(safe-area-inset-bottom))}
@@ -206,12 +214,18 @@ function shell(nav){
     '</nav></div></div>';
   var lg=$("#lg");if(lg)lg.onclick=logout;
   var lgm=$("#lgm");if(lgm)lgm.onclick=logout;
+  var sc=document.createElement("div");sc.className="scrim";document.body.appendChild(sc);
+  var sb=$(".sb"),tg=$("#mb");
+  if(tg){tg.onclick=function(){sb.classList.toggle("open");sc.classList.toggle("on",sb.classList.contains("open"))}}
+  if(sc)sc.onclick=function(){sb.classList.remove("open");sc.classList.remove("on")};
+  window.__closeDrawer=function(){sb.classList.remove("open");sc.classList.remove("on")};
   Array.prototype.forEach.call(document.querySelectorAll("[data-nav]"),function(b){
-    b.onclick=function(){nav_(b.dataset.nav)}});
+    b.onclick=function(){window.__closeDrawer();nav_(b.dataset.nav)}});
 }
 function nav_(name){stopPoll();setCleanup(null);
   if(name==="dash")viewDash();else if(name==="new")viewWizard();else if(name==="admin")viewAdmin()}
 function logout(){api("POST","/auth/logout").then(function(){render()})}
+function closeDrawer(){var w=window.__closeDrawer;if(w)w()}
 // ───────────────────────────── login ─────────────────────────────
 function viewLogin(){
   stopPoll();setCleanup(null);
