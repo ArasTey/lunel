@@ -11,12 +11,13 @@ import contextlib
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import version
 from .db import close_db, init_pool
 from .logging import get, setup_logging
+from .panel import router as panel_router
 from .routers import admin, auth, domains, instances, internal
 from .security.ratelimit import RULES, client_ip, limiter
 from .services.gateway import router as gateway_router
@@ -29,12 +30,20 @@ FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 app = FastAPI(title="Lunel Console", docs_url=None, redoc_url=None,
               version=version.version())
 
+app.include_router(panel_router)
 app.include_router(auth.router)
 app.include_router(instances.router)
 app.include_router(domains.router)
 app.include_router(admin.router)
 app.include_router(internal.router)
 app.include_router(gateway_router)
+
+
+@app.get("/", include_in_schema=False)
+async def panel_home():
+    from .panel import PAGE
+
+    return HTMLResponse(PAGE)
 
 
 @app.get("/health")
@@ -56,14 +65,13 @@ async def version_endpoint():
 
 @app.exception_handler(404)
 async def spa_fallback(request, exc):
-    """Serve the SPA for unknown non-API paths (client-side routing)."""
+    """Serve the self-contained panel for unknown browser paths."""
     path = request.url.path
     if path.startswith(("/api", "/auth", "/i/", "/worker")) or path == "/health":
         return JSONResponse({"detail": "not found"}, status_code=404)
-    index = FRONTEND_DIR / "index.html"
-    if index.exists():
-        return FileResponse(index)
-    return JSONResponse({"detail": "frontend not built"}, status_code=404)
+    from .panel import PAGE
+
+    return HTMLResponse(PAGE)
 
 
 @contextlib.asynccontextmanager

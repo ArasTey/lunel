@@ -121,6 +121,27 @@ async def login_password(request: Request):
     return resp
 
 
+@router.post("/change-password")
+async def change_password(request: Request):
+    pool = get_pool(request)
+    user = await sessions.get_session_user(pool, request)
+    sessions.require_user(user)
+    sessions.check_csrf(request, user)
+    body = await request.json()
+    current = str(body.get("current_password") or "")
+    new = str(body.get("new_password") or "")
+    if len(new) < 8:
+        raise HTTPException(status_code=400, detail="new password must be at least 8 characters")
+    row = await pool.fetchrow("SELECT password_hash FROM users WHERE id = $1", user["id"])
+    if not password_auth.verify_password(current, row["password_hash"]):
+        raise HTTPException(status_code=400, detail="current password is incorrect")
+    await pool.execute(
+        "UPDATE users SET password_hash = $2 WHERE id = $1",
+        user["id"], password_auth.hash_password(new),
+    )
+    return {"ok": True}
+
+
 @router.post("/logout")
 async def logout(request: Request):
     pool = get_pool(request)

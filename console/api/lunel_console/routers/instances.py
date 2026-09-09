@@ -59,7 +59,10 @@ async def list_instances(request: Request, user: asyncpg.Record = Depends(curren
                i.last_active_at,
                (SELECT d.domain FROM domains d
                 WHERE d.instance_id = i.id AND d.is_active = TRUE
-                ORDER BY d.created_at DESC LIMIT 1) AS domain,
+                ORDER BY (CASE WHEN d.kind = 'path' THEN 0 ELSE 1 END), d.created_at DESC LIMIT 1) AS domain,
+               (SELECT d.kind FROM domains d
+                WHERE d.instance_id = i.id AND d.is_active = TRUE
+                ORDER BY (CASE WHEN d.kind = 'path' THEN 0 ELSE 1 END), d.created_at DESC LIMIT 1) AS domain_kind,
                (SELECT COUNT(*) FROM deployments dep WHERE dep.instance_id = i.id) AS deployments_count
         FROM instances i
         WHERE i.user_id = $1 AND i.status <> 'deleted'
@@ -67,7 +70,30 @@ async def list_instances(request: Request, user: asyncpg.Record = Depends(curren
         """,
         user["id"],
     )
-    return {"instances": [_instance_out(r) for r in rows]}
+    origin = _console_origin(request)
+    out = []
+    for r in rows:
+        item = _instance_out(r)
+        if item.get("domain"):
+            item["endpoint_url"] = (
+                f"{origin}/i/{item['domain']}" if item.get("domain_kind") == "path"
+                else f"https://{item['domain']}"
+            )
+        out.append(item)
+    return {"instances": out}
+
+
+def _console_origin(request: Request) -> str:
+    """Public origin of this console, trusting the edge proxy's headers
+    (X-Forwarded-Proto/Host) when present, else the explicit setting."""
+    import os
+
+    explicit = os.environ.get("LUNEL_PUBLIC_URL", "").strip()
+    if explicit:
+        return explicit.rstrip("/")
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or "127.0.0.1:8080"
+    return f"{proto}://{host}"
 
 
 @router.get("/instances/{instance_id}")
@@ -82,12 +108,20 @@ async def get_instance(instance_id: str, request: Request,
         "WHERE instance_id = $1 AND is_active = TRUE ORDER BY created_at",
         instance_id,
     )
+    origin = _console_origin(request)
+    domains = [
+        dict(d) | {"url": (f"{origin}/i/{d['domain']}" if d["kind"] == "path" else f"https://{d['domain']}")}
+        for d in domains
+    ]
     latest_dep = await pool.fetchrow(
         "SELECT id, version, status, error, started_at, finished_at, duration_ms "
         "FROM deployments WHERE instance_id = $1 ORDER BY started_at DESC LIMIT 1",
         instance_id,
     )
     out = _instance_out(inst)
+    path_dom = next((d for d in domains if d["kind"] == "path"), None)
+    if path_dom is not None:
+        out["endpoint_url"] = path_dom["url"]
     out.update({
         "config": {
             "protocol": cfg["protocol"], "cpu_limit": cfg["cpu_limit"],

@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import secrets
 import ssl as ssl_module
 from datetime import datetime
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -398,6 +399,7 @@ async def init_pool() -> None:
         await _sqlite.connect()
         await _sqlite.conn_executescript(SQLITE_SCHEMA)
         db = _sqlite
+        await _seed_default_admin()
         log.info("Lunel Console database: embedded SQLite (%s)", _mask_sqlite(dsn))
         return
 
@@ -422,6 +424,7 @@ async def init_pool() -> None:
         await _sqlite.connect()
         await _sqlite.conn_executescript(SQLITE_SCHEMA)
         db = _sqlite
+        await _seed_default_admin()
         log.warning(
             "no PostgreSQL configured — using embedded SQLite at %s "
             "(attach a PostgreSQL database and set DATABASE_URL for production scale)",
@@ -434,12 +437,33 @@ async def init_pool() -> None:
     pool = await _connect_with_retry(normalized, ssl_ctx)
     await migrate(pool)
     db = _PostgresDatabase(pool)
+    await _seed_default_admin()
     log.info("Lunel Console database: PostgreSQL at %s", _mask_dsn(normalized))
 
 
 def _mask_sqlite(dsn: str) -> str:
     p = dsn.removeprefix("sqlite://")
     return p if p.startswith("/") else "/" + p.lstrip("/")
+
+
+async def _seed_default_admin() -> None:
+    """Zero-config bootstrap: if no users exist, create admin/admin so the
+    panel is usable immediately. Change the password in Admin → System."""
+    from .auth.password import hash_password
+
+    assert db is not None
+    count = await db.fetchval("SELECT COUNT(*) FROM users")
+    if count:
+        return
+    from datetime import datetime, timezone
+
+    await db.execute(
+        "INSERT INTO users (id, login, name, is_admin, password_hash, created_at) "
+        "VALUES ($1, 'admin', 'Administrator', 1, $2, $3)",
+        secrets.token_hex(16), hash_password("admin"), datetime.now(timezone.utc),
+    )
+    log.warning("seeded default account admin/admin — change the password "
+                "in Admin → System after first login")
 
 
 async def close_db() -> None:

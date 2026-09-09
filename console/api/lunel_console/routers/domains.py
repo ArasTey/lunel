@@ -128,11 +128,14 @@ async def delete_domain(instance_id: str, domain_id: str, request: Request,
 
 
 def _console_origin(request: Request) -> str:
-    from ..config import settings
+    import os
 
-    if settings.public_url:
-        return settings.public_url.rstrip("/")
-    return str(request.base_url).rstrip("/")
+    explicit = os.environ.get("LUNEL_PUBLIC_URL", "").strip()
+    if explicit:
+        return explicit.rstrip("/")
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or "127.0.0.1:8080"
+    return f"{proto}://{host}"
 
 
 def _endpoint_token() -> str:

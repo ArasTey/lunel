@@ -28,10 +28,13 @@ via the built-in setup screen.
    - **Generate a domain** in the service settings → this URL is the whole
      platform (console UI, API, and all instance endpoints under `/i/<token>`,
      WebSocket + automatic TLS included).
-3. **Deploy.** Open your domain → the setup screen appears → create the admin
-   account → **Create Instance** → Deploy → the instance page shows a ready
-   endpoint (`https://<your-domain>/i/<token>`) → import the generated link
-   into v2rayNG / NekoBox / Streisand.
+3. **Deploy.** Open your domain → sign in with the built-in account
+   **admin / admin** → **Create Instance** → Deploy → the instance page shows
+   a ready endpoint (`https://<your-domain>/i/<token>`) → import the generated
+   link into v2rayNG / NekoBox / Streisand.
+
+> Change the default password right after first login (Admin → System →
+> Change your password). Set `LUNEL_DEFAULT_ADMIN=0` to disable seeding.
 
 That's the whole deployment. Optional hardening once it runs:
 

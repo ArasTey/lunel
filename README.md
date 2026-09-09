@@ -52,10 +52,11 @@ a PostgreSQL database and a public domain (Lucity, Railway, Render, …):
 
 1. Fork this repo → add a service from the fork **root** with start command
    `python main.py` → generate a domain → deploy.
-2. Open your domain → the setup screen creates the admin account →
+2. Open your domain → sign in with the built-in account **admin / admin** →
    **Create Instance** → Deploy.
 
-Zero required variables: embedded SQLite storage and first-run admin setup
+Zero required variables: embedded SQLite storage and the default admin
+account (`admin` / `admin` — change it in **Admin → System** on first login)
 are automatic. Optional: attach a PostgreSQL database (auto-detected via
 `DATABASE_URL`) and GitHub OAuth (`LUNEL_GITHUB_CLIENT_ID` / `..._SECRET`).
 Full details in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
