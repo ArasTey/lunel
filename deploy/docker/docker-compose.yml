@@ -1,0 +1,84 @@
+# Lunel self-hosted stack: PostgreSQL + Console + Worker (+ optional edge proxy).
+# Lucity: don't use this file — see docs/DEPLOYMENT.md "Deploying on Lucity"
+# (one project: console service with public domain, worker internal-only,
+# one-click PostgreSQL).
+#
+# Self-hosted with real per-instance hostnames: uncomment the caddy service,
+# point *.lunel.example.com wildcard DNS at this host and set LUNEL_DOMAIN_ROOT.
+name: lunel
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: lunel
+      POSTGRES_PASSWORD: ${LUNEL_PG_PASSWORD:?set LUNEL_PG_PASSWORD}
+      POSTGRES_DB: lunel
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lunel"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  console:
+    build:
+      context: ..
+      dockerfile: deploy/docker/console.Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      LUNEL_DATABASE_URL: postgres://lunel:${LUNEL_PG_PASSWORD}@postgres:5432/lunel
+      LUNEL_SECRET_KEY: ${LUNEL_SECRET_KEY:?set LUNEL_SECRET_KEY (32+ chars)}
+      LUNEL_WORKER_TOKEN: ${LUNEL_WORKER_TOKEN:?set LUNEL_WORKER_TOKEN}
+      LUNEL_PUBLIC_URL: ${LUNEL_PUBLIC_URL:-http://127.0.0.1:8080}
+      LUNEL_GITHUB_CLIENT_ID: ${LUNEL_GITHUB_CLIENT_ID:-}
+      LUNEL_GITHUB_CLIENT_SECRET: ${LUNEL_GITHUB_CLIENT_SECRET:-}
+      LUNEL_ADMIN_GITHUB_LOGIN: ${LUNEL_ADMIN_GITHUB_LOGIN:-}
+      LUNEL_COOKIE_SECURE: ${LUNEL_COOKIE_SECURE:-0}
+      LUNEL_LOCAL_WORKER_URL: http://worker:9100
+    ports:
+      - "127.0.0.1:8080:8080"
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ..
+      dockerfile: deploy/docker/worker.Dockerfile
+    depends_on:
+      - console
+    environment:
+      LUNEL_WORKER_TOKEN: ${LUNEL_WORKER_TOKEN}
+      LUNEL_CONSOLE_URL: http://console:8080
+      LUNEL_NODE_ID: local
+      LUNEL_NODE_REGION: local
+      LUNEL_WORKER_DRIVER: ${LUNEL_WORKER_DRIVER:-process}
+      LUNEL_WORKER_DATA: /var/lib/lunel/instances
+    volumes:
+      - workerdata:/var/lib/lunel/instances
+      # Docker driver only — never expose this to Lunel Core containers:
+      # - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+
+  # Optional edge proxy: gives every instance a real hostname
+  # <slug>-<token>.<LUNEL_DOMAIN_ROOT> with automatic TLS (Let's Encrypt).
+  # Requires wildcard DNS *.LUNEL_DOMAIN_ROOT -> this host, ports 80/443.
+  # caddy:
+  #   image: caddy:2-alpine
+  #   depends_on: [console]
+  #   ports: ["80:80", "443:443"]
+  #   environment:
+  #     LUNEL_DOMAIN_ROOT: ${LUNEL_DOMAIN_ROOT:-}
+  #     LUNEL_CONSOLE_UPSTREAM: console:8080
+  #   volumes:
+  #     - ./proxy/Caddyfile.template:/etc/caddy/Caddyfile.template:ro
+  #     - caddydata:/data
+  #   command: sh -c "envsubst < /etc/caddy/Caddyfile.template > /etc/caddy/Caddyfile && caddy run --config /etc/caddy/Caddyfile"
+
+volumes:
+  pgdata:
+  workerdata:
+  caddydata:

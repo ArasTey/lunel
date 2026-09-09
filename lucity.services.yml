@@ -1,0 +1,29 @@
+# Lucity service configuration for the Lunel monorepo.
+# Lucity auto-detects services with railpack; these values make both
+# services explicit. See docs/DEPLOYMENT.md for the full walkthrough.
+#
+# On Lucity:
+#   * Create ONE project, add two services from this repo:
+#       - console  → root directory "console/api", public domain attached
+#       - worker   → root directory "worker", NO domain (internal-only)
+#   * Provision PostgreSQL with one click; Lucity injects DATABASE_URL.
+#   * The console is the only public endpoint (single-domain reality).
+#     Instance endpoints are https://<console-domain>/i/<token>/...
+
+services:
+  console:
+    root_directory: console/api
+    port: 8080
+    build:
+      # railpack detects Python; requirements live in console/api
+      requirements: console/api/requirements.txt
+    start_command: "python -m lunel_console"
+    healthcheck_path: /health
+    # public domain: attach in the Lucity dashboard (Generate Domain)
+
+  worker:
+    root_directory: worker
+    port: 9100
+    start_command: "python -m lunel_worker"
+    healthcheck_path: /health
+    # no domains → internal-only, reachable as http://worker:9100

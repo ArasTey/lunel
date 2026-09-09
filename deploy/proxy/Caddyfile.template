@@ -1,0 +1,23 @@
+# Lunel edge proxy (Caddy) — used only for self-hosted wildcard-domain mode.
+# On Lucity this file is NOT needed: the platform's Gateway API routes
+# <console-service>-<env>.<workload-domain> to the console, and instance
+# endpoints are served as /i/<token> paths on that domain with automatic TLS.
+#
+# Behavior here: the console handles everything; instances ride the same
+# origin under /i/<token>/...  With wildcard DNS you may additionally map
+# per-instance hostnames by uncommenting the second block.
+
+{
+	email {$LUNEL_ADMIN_EMAIL:admin@example.com}
+}
+
+# The console (and instance gateway under /i/)
+*.{$LUNEL_DOMAIN_ROOT}, {$LUNEL_DOMAIN_ROOT} {
+	reverse_proxy {$LUNEL_CONSOLE_UPSTREAM:console:8080}
+}
+
+# Per-instance hostnames (optional; requires LUNEL_ENDPOINT_HOSTNAMES=1
+# and the instance's Host routed by the console's custom-domain table):
+# *.inst.{$LUNEL_DOMAIN_ROOT} {
+# 	reverse_proxy {$LUNEL_CONSOLE_UPSTREAM:console:8080}
+# }

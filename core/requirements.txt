@@ -1,0 +1,5 @@
+fastapi>=0.141
+uvicorn[standard]>=0.30
+websockets>=12.0
+cryptography>=42.0.0
+psutil>=5.9.0

@@ -1,0 +1,403 @@
+"""Instance management routes — the core of the Lunel Console API.
+
+All routes require an authenticated session; every query is scoped to the
+owning user (authorization). Secrets (core API token) never leave the server.
+"""
+from __future__ import annotations
+
+import secrets
+from datetime import datetime, timezone
+
+import asyncpg
+from fastapi import APIRouter, Depends, HTTPException, Request
+
+from ..auth import sessions
+from ..config import settings
+from ..db import get_pool
+from ..security.ratelimit import RULES, client_ip, limiter
+from ..services import deployments as deploy_svc
+from ..services import workers as worker_svc
+from ..services.domains import generate_domain, slugify, validate_slug
+
+router = APIRouter(prefix="/api", tags=["instances"])
+
+PROTOCOLS = ("vless-ws", "trojan-ws", "shadowsocks", "xhttp-packet-up", "xhttp-stream-up")
+
+
+async def current_user(request: Request) -> asyncpg.Record:
+    pool = get_pool(request)
+    user = await sessions.get_session_user(pool, request)
+    sessions.require_user(user)
+    sessions.check_csrf(request, user)
+    return user
+
+
+async def owned_instance(pool: asyncpg.Pool, user_id: str, instance_id: str) -> asyncpg.Record:
+    inst = await pool.fetchrow(
+        "SELECT * FROM instances WHERE id = $1 AND user_id = $2 AND status <> 'deleted'",
+        instance_id, user_id,
+    )
+    if inst is None:
+        raise HTTPException(status_code=404, detail="instance not found")
+    return inst
+
+
+# ---------------------------------------------------------------------------
+# Listing / detail
+# ---------------------------------------------------------------------------
+@router.get("/instances")
+async def list_instances(request: Request, user: asyncpg.Record = Depends(current_user)):
+    limiter.check(f"read:{user['id']}", RULES["api_read"])
+    pool = get_pool(request)
+    rows = await pool.fetch(
+        """
+        SELECT i.id, i.name, i.slug, i.region, i.status, i.provider, i.created_at,
+               i.last_active_at,
+               d.domain,
+               (SELECT COUNT(*) FROM deployments dep WHERE dep.instance_id = i.id) AS deployments_count
+        FROM instances i
+        LEFT JOIN LATERAL (
+            SELECT domain FROM domains
+            WHERE instance_id = i.id AND is_active = TRUE
+            ORDER BY created_at DESC LIMIT 1
+        ) d ON TRUE
+        WHERE i.user_id = $1 AND i.status <> 'deleted'
+        ORDER BY i.created_at DESC
+        """,
+        user["id"],
+    )
+    return {"instances": [_instance_out(r) for r in rows]}
+
+
+@router.get("/instances/{instance_id}")
+async def get_instance(instance_id: str, request: Request,
+                       user: asyncpg.Record = Depends(current_user)):
+    limiter.check(f"read:{user['id']}", RULES["api_read"])
+    pool = get_pool(request)
+    inst = await owned_instance(pool, user["id"], instance_id)
+    cfg = await pool.fetchrow("SELECT * FROM instance_configs WHERE instance_id = $1", instance_id)
+    domains = await pool.fetch(
+        "SELECT domain, kind, is_custom, tls, is_active FROM domains "
+        "WHERE instance_id = $1 AND is_active = TRUE ORDER BY created_at",
+        instance_id,
+    )
+    latest_dep = await pool.fetchrow(
+        "SELECT id, version, status, error, started_at, finished_at, duration_ms "
+        "FROM deployments WHERE instance_id = $1 ORDER BY started_at DESC LIMIT 1",
+        instance_id,
+    )
+    out = _instance_out(inst)
+    out.update({
+        "config": {
+            "protocol": cfg["protocol"], "cpu_limit": cfg["cpu_limit"],
+            "memory_mb": cfg["memory_mb"], "max_processes": cfg["max_processes"],
+            "core_version": cfg["core_version"],
+        } if cfg else None,
+        "domains": [dict(d) for d in domains],
+        "latest_deployment": dict(latest_dep) if latest_dep else None,
+    })
+    return out
+
+
+def _instance_out(row: asyncpg.Record) -> dict:
+    data = dict(row)
+    data["id"] = str(data["id"])
+    for key in ("created_at", "updated_at", "last_active_at"):
+        if key in data and data[key] is not None:
+            data[key] = data[key].isoformat()
+    return data
+
+
+# ---------------------------------------------------------------------------
+# Create (wizard) + delete
+# ---------------------------------------------------------------------------
+class CreateInstanceBody:
+    def __init__(self, body: dict):
+        self.name = str(body.get("name") or "").strip()
+        self.region = str(body.get("region") or "local").strip()[:40]
+        config = body.get("config") or {}
+        if not isinstance(config, dict):
+            raise HTTPException(status_code=400, detail="config must be an object")
+        self.protocol = str(config.get("protocol") or "vless-ws")
+        self.cpu_limit = float(config.get("cpu_limit") or 0.5)
+        self.memory_mb = int(config.get("memory_mb") or 256)
+        self.core_version = str(config.get("core_version") or "latest")[:40]
+
+
+@router.post("/instances", status_code=201)
+async def create_instance(request: Request, user: asyncpg.Record = Depends(current_user)):
+    limiter.check(f"write:{user['id']}", RULES["api_write"])
+    pool = get_pool(request)
+    body = CreateInstanceBody(await request.json())
+
+    if not (2 <= len(body.name) <= 60):
+        raise HTTPException(status_code=400, detail="name must be 2-60 characters")
+    if body.protocol not in PROTOCOLS:
+        raise HTTPException(status_code=400, detail=f"protocol must be one of {PROTOCOLS}")
+    if not (0.1 <= body.cpu_limit <= 8):
+        raise HTTPException(status_code=400, detail="cpu_limit must be 0.1-8")
+    if not (128 <= body.memory_mb <= 8192):
+        raise HTTPException(status_code=400, detail="memory_mb must be 128-8192")
+
+    slug = slugify(body.name)
+    if not validate_slug(slug):
+        raise HTTPException(status_code=400, detail="name produces an invalid slug")
+
+    # Enforce a sane per-user instance cap.
+    count = await pool.fetchval(
+        "SELECT COUNT(*) FROM instances WHERE user_id = $1 AND status <> 'deleted'", user["id"]
+    )
+    if count >= 25:
+        raise HTTPException(status_code=409, detail="instance limit reached (25)")
+
+    dup = await pool.fetchval(
+        "SELECT 1 FROM instances WHERE user_id = $1 AND slug = $2 AND status <> 'deleted'",
+        user["id"], slug,
+    )
+    if dup:
+        raise HTTPException(status_code=409, detail="you already have an instance with this name")
+
+    instance_id = str((await pool.fetchrow(
+        """
+        INSERT INTO instances (user_id, name, slug, region, status, provider, core_api_token)
+        VALUES ($1, $2, $3, $4, 'stopped', $5, $6)
+        RETURNING id
+        """,
+        user["id"], body.name, slug, body.region,
+        "railway" if deploy_svc.railway_provider() else "local",
+        secrets.token_urlsafe(24),
+    ))["id"])
+    await pool.execute(
+        "INSERT INTO instance_configs (instance_id, protocol, cpu_limit, memory_mb, core_version) "
+        "VALUES ($1, $2, $3, $4, $5)",
+        instance_id, body.protocol, body.cpu_limit, body.memory_mb, body.core_version,
+    )
+    # Every instance gets a private path endpoint immediately (works on every
+    # platform incl. Lucity; real hostnames come from the provider where supported).
+    await pool.execute(
+        "INSERT INTO domains (instance_id, domain, kind, tls) VALUES ($1, $2, 'path', TRUE)",
+        instance_id, secrets.token_urlsafe(18),
+    )
+    await _record_activity(pool, user["id"], instance_id, "instance",
+                           f"Instance '{body.name}' created")
+    return await get_instance(instance_id, request, user)
+
+
+@router.delete("/instances/{instance_id}")
+async def delete_instance(instance_id: str, request: Request,
+                          user: asyncpg.Record = Depends(current_user)):
+    limiter.check(f"write:{user['id']}", RULES["api_write"])
+    pool = get_pool(request)
+    inst = await owned_instance(pool, user["id"], instance_id)
+    try:
+        await deploy_svc.delete_from_provider(pool, instance_id)
+    except Exception:
+        pass  # provider cleanup is best-effort; the record is tombstoned regardless
+    await pool.execute(
+        "UPDATE instances SET status='deleted', updated_at=now() WHERE id=$1", instance_id
+    )
+    await _record_activity(pool, user["id"], instance_id, "instance",
+                           f"Instance '{inst['name']}' deleted", level="warn")
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Lifecycle
+# ---------------------------------------------------------------------------
+@router.post("/instances/{instance_id}/deploy")
+async def deploy(instance_id: str, request: Request,
+                 user: asyncpg.Record = Depends(current_user)):
+    limiter.check(f"write:{user['id']}", RULES["api_write"])
+    pool = get_pool(request)
+    inst = await owned_instance(pool, user["id"], instance_id)
+    if inst["status"] in ("queued", "preparing", "building", "starting", "health_check"):
+        raise HTTPException(status_code=409, detail="a deployment is already in progress")
+    try:
+        deployment_id = await deploy_svc.deploy_instance(pool, instance_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    await _record_activity(pool, user["id"], instance_id, "deployment",
+                           f"Deployment queued for '{inst['name']}'")
+    return {"ok": True, "deployment_id": deployment_id}
+
+
+@router.post("/instances/{instance_id}/restart")
+async def restart(instance_id: str, request: Request,
+                  user: asyncpg.Record = Depends(current_user)):
+    limiter.check(f"write:{user['id']}", RULES["api_write"])
+    pool = get_pool(request)
+    inst = await owned_instance(pool, user["id"], instance_id)
+    if inst["status"] != "running":
+        raise HTTPException(status_code=409, detail="instance is not running")
+    await deploy_svc.restart_instance(pool, instance_id)
+    await _record_activity(pool, user["id"], instance_id, "instance",
+                           f"Instance '{inst['name']}' restarted")
+    return {"ok": True}
+
+
+@router.post("/instances/{instance_id}/stop")
+async def stop(instance_id: str, request: Request,
+               user: asyncpg.Record = Depends(current_user)):
+    limiter.check(f"write:{user['id']}", RULES["api_write"])
+    pool = get_pool(request)
+    inst = await owned_instance(pool, user["id"], instance_id)
+    await deploy_svc.stop_instance(pool, instance_id)
+    await _record_activity(pool, user["id"], instance_id, "instance",
+                           f"Instance '{inst['name']}' stopped", level="warn")
+    return {"ok": True}
+
+
+@router.post("/instances/{instance_id}/redeploy")
+async def redeploy(instance_id: str, request: Request,
+                   user: asyncpg.Record = Depends(current_user)):
+    limiter.check(f"write:{user['id']}", RULES["api_write"])
+    pool = get_pool(request)
+    inst = await owned_instance(pool, user["id"], instance_id)
+    try:
+        deployment_id = await deploy_svc.deploy_instance(pool, instance_id, is_redeploy=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    await _record_activity(pool, user["id"], instance_id, "deployment",
+                           f"Redeploy queued for '{inst['name']}'")
+    return {"ok": True, "deployment_id": deployment_id}
+
+
+# ---------------------------------------------------------------------------
+# Runtime data (via worker)
+# ---------------------------------------------------------------------------
+@router.get("/instances/{instance_id}/status")
+async def status(instance_id: str, request: Request,
+                 user: asyncpg.Record = Depends(current_user)):
+    pool = get_pool(request)
+    await owned_instance(pool, user["id"], instance_id)
+    node_url, node_id = await _worker_for(pool, instance_id)
+    if node_url is None:
+        return {"running": False, "known": False}
+    try:
+        return await worker_svc.worker_call(
+            node_url, "GET", f"/worker/api/instances/{instance_id}/status", timeout=10.0
+        )
+    except worker_svc.WorkerError as exc:
+        return {"running": False, "known": True, "error": str(exc)}
+
+
+@router.get("/instances/{instance_id}/logs")
+async def logs(instance_id: str, request: Request,
+               user: asyncpg.Record = Depends(current_user), tail: int = 200):
+    pool = get_pool(request)
+    await owned_instance(pool, user["id"], instance_id)
+    node_url, node_id = await _worker_for(pool, instance_id)
+    if node_url is None:
+        return {"logs": []}
+    try:
+        return await worker_svc.worker_call(
+            node_url, "GET", f"/worker/api/instances/{instance_id}/logs", timeout=10.0
+        )
+    except worker_svc.WorkerError as exc:
+        return {"logs": [f"[console] worker error: {exc}"]}
+
+
+@router.get("/instances/{instance_id}/metrics")
+async def metrics(instance_id: str, request: Request,
+                  user: asyncpg.Record = Depends(current_user)):
+    pool = get_pool(request)
+    await owned_instance(pool, user["id"], instance_id)
+    node_url, _ = await _worker_for(pool, instance_id)
+    if node_url is None:
+        return {"available": False}
+    try:
+        return await worker_svc.worker_call(
+            node_url, "GET", f"/worker/api/instances/{instance_id}/metrics", timeout=10.0
+        )
+    except worker_svc.WorkerError as exc:
+        return {"available": False, "error": str(exc)}
+
+
+async def _worker_for(pool: asyncpg.Pool, instance_id: str) -> tuple[str | None, str | None]:
+    row = await pool.fetchrow(
+        "SELECT node_id FROM deployments WHERE instance_id = $1 ORDER BY started_at DESC LIMIT 1",
+        instance_id,
+    )
+    node_id = (row["node_id"] if row else None) or settings.default_worker_node
+    return worker_svc.worker_url_for(node_id), node_id
+
+
+# ---------------------------------------------------------------------------
+# Deployments & activity
+# ---------------------------------------------------------------------------
+@router.get("/instances/{instance_id}/deployments")
+async def deployments(instance_id: str, request: Request,
+                      user: asyncpg.Record = Depends(current_user)):
+    pool = get_pool(request)
+    await owned_instance(pool, user["id"], instance_id)
+    rows = await pool.fetch(
+        """
+        SELECT d.id, d.version, d.status, d.error, d.node_id, d.started_at, d.finished_at, d.duration_ms,
+               (SELECT COUNT(*) FROM deployment_logs l WHERE l.deployment_id = d.id) AS log_count
+        FROM deployments d WHERE d.instance_id = $1
+        ORDER BY d.started_at DESC LIMIT 50
+        """,
+        instance_id,
+    )
+    out = []
+    for r in rows:
+        item = dict(r)
+        item["id"] = str(item["id"])
+        for key in ("started_at", "finished_at"):
+            if item[key] is not None:
+                item[key] = item[key].isoformat()
+        out.append(item)
+    return {"deployments": out}
+
+
+@router.get("/instances/{instance_id}/deployments/{deployment_id}/logs")
+async def deployment_logs(instance_id: str, deployment_id: str, request: Request,
+                          user: asyncpg.Record = Depends(current_user)):
+    pool = get_pool(request)
+    await owned_instance(pool, user["id"], instance_id)
+    rows = await pool.fetch(
+        """
+        SELECT level, message, ts FROM deployment_logs
+        WHERE deployment_id = $1 AND deployment_id IN
+          (SELECT id FROM deployments WHERE instance_id = $2)
+        ORDER BY ts ASC LIMIT 500
+        """,
+        deployment_id, instance_id,
+    )
+    return {"logs": [{"level": r["level"], "message": r["message"],
+                      "ts": r["ts"].isoformat()} for r in rows]}
+
+
+@router.get("/instances/{instance_id}/activity")
+async def activity(instance_id: str, request: Request,
+                   user: asyncpg.Record = Depends(current_user)):
+    pool = get_pool(request)
+    await owned_instance(pool, user["id"], instance_id)
+    rows = await pool.fetch(
+        "SELECT kind, level, message, created_at FROM activity_events "
+        "WHERE instance_id = $1 ORDER BY created_at DESC LIMIT 100",
+        instance_id,
+    )
+    return {"activity": [{"kind": r["kind"], "level": r["level"], "message": r["message"],
+                          "ts": r["created_at"].isoformat()} for r in rows]}
+
+
+@router.get("/activity")
+async def my_activity(request: Request, user: asyncpg.Record = Depends(current_user)):
+    pool = get_pool(request)
+    rows = await pool.fetch(
+        "SELECT kind, level, message, instance_id, created_at FROM activity_events "
+        "WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50",
+        user["id"],
+    )
+    return {"activity": [{"kind": r["kind"], "level": r["level"], "message": r["message"],
+                          "instance_id": str(r["instance_id"]) if r["instance_id"] else None,
+                          "ts": r["created_at"].isoformat()} for r in rows]}
+
+
+async def _record_activity(pool, user_id, instance_id, kind, message, level="info"):
+    await pool.execute(
+        "INSERT INTO activity_events (user_id, instance_id, kind, level, message) "
+        "VALUES ($1, $2, $3, $4, $5)",
+        user_id, instance_id, kind, level, message,
+    )

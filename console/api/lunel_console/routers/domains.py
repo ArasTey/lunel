@@ -1,0 +1,136 @@
+"""Domain management routes.
+
+Endpoints per instance:
+* Platform-generated path endpoints (always available): the console URL with
+  a private endpoint token — works on any platform (incl. Lucity) with zero
+  extra configuration.
+* Provider domains (Railway: real generated hostnames; self-hosted: wildcard
+  DNS + bundled Caddy). Regenerate deletes and re-creates.
+"""
+from __future__ import annotations
+
+import asyncpg
+from fastapi import APIRouter, Depends, HTTPException, Request
+
+from ..auth import sessions
+from ..db import get_pool
+from ..security.ratelimit import RULES, limiter
+from ..services.domains import generate_domain
+from ..services import deployments as deploy_svc
+from .instances import current_user, owned_instance
+
+router = APIRouter(prefix="/api", tags=["domains"])
+
+
+@router.get("/instances/{instance_id}/domains")
+async def list_domains(instance_id: str, request: Request,
+                       user: asyncpg.Record = Depends(current_user)):
+    pool = get_pool(request)
+    await owned_instance(pool, user["id"], instance_id)
+    rows = await pool.fetch(
+        "SELECT id, domain, kind, is_custom, tls, is_active, created_at FROM domains "
+        "WHERE instance_id = $1 ORDER BY created_at",
+        instance_id,
+    )
+    out = []
+    for r in rows:
+        item = dict(r)
+        item["id"] = str(item["id"])
+        item["created_at"] = item["created_at"].isoformat()
+        if item["kind"] == "path":
+            item["url"] = f"{_console_origin(request)}/i/{item['domain']}"
+        else:
+            item["url"] = f"https://{item['domain']}"
+        out.append(item)
+    return {"domains": out}
+
+
+@router.post("/instances/{instance_id}/domains")
+async def create_domain(instance_id: str, request: Request,
+                        user: asyncpg.Record = Depends(current_user)):
+    """Regenerate the instance's public endpoint(s)."""
+    limiter.check(f"write:{user['id']}", RULES["api_write"])
+    pool = get_pool(request)
+    inst = await owned_instance(pool, user["id"], instance_id)
+
+    # 1. Rotate the path endpoint token (always).
+    old = await pool.fetchval(
+        "SELECT domain FROM domains WHERE instance_id = $1 AND kind = 'path' AND is_active = TRUE",
+        instance_id,
+    )
+    new_token = _endpoint_token()
+    if old:
+        await pool.execute(
+            "UPDATE domains SET is_active = FALSE WHERE instance_id = $1 AND kind = 'path'",
+            instance_id,
+        )
+    await pool.execute(
+        "INSERT INTO domains (instance_id, domain, kind, tls) VALUES ($1, $2, 'path', TRUE)",
+        instance_id, new_token,
+    )
+
+    # 2. Rotate provider hostname when the provider supports it.
+    provider_domain = None
+    provider = deploy_svc.railway_provider()
+    if provider and inst["provider_ref"]:
+        row = await pool.fetchrow(
+            "SELECT provider_ref FROM domains WHERE instance_id=$1 AND kind='http' "
+            "AND is_active=TRUE ORDER BY created_at DESC LIMIT 1",
+            instance_id,
+        )
+        try:
+            if row and row["provider_ref"]:
+                await provider.delete_domain(row["provider_ref"])
+                await pool.execute(
+                    "UPDATE domains SET is_active=FALSE WHERE id IN "
+                    "(SELECT id FROM domains WHERE instance_id=$1 AND kind='http')",
+                    instance_id,
+                )
+            dom = await provider.create_domain(inst["provider_ref"])
+            await pool.execute(
+                "INSERT INTO domains (instance_id, domain, kind, provider_ref, tls) "
+                "VALUES ($1, $2, 'http', $3, TRUE)",
+                instance_id, dom["domain"], dom["id"],
+            )
+            provider_domain = dom["domain"]
+        except Exception:
+            provider_domain = None  # provider domain rotation failed; path endpoint still rotated
+
+    return {
+        "ok": True,
+        "path_endpoint": f"{_console_origin(request)}/i/{new_token}",
+        "provider_domain": provider_domain,
+    }
+
+
+@router.delete("/instances/{instance_id}/domains/{domain_id}")
+async def delete_domain(instance_id: str, domain_id: str, request: Request,
+                        user: asyncpg.Record = Depends(current_user)):
+    limiter.check(f"write:{user['id']}", RULES["api_write"])
+    pool = get_pool(request)
+    await owned_instance(pool, user["id"], instance_id)
+    row = await pool.fetchrow(
+        "SELECT id, kind, provider_ref, is_custom FROM domains "
+        "WHERE id = $1 AND instance_id = $2",
+        domain_id, instance_id,
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="domain not found")
+    if row["kind"] == "path":
+        raise HTTPException(status_code=400, detail="path endpoints can only be regenerated, not removed")
+    await pool.execute("UPDATE domains SET is_active = FALSE WHERE id = $1", domain_id)
+    return {"ok": True}
+
+
+def _console_origin(request: Request) -> str:
+    from ..config import settings
+
+    if settings.public_url:
+        return settings.public_url.rstrip("/")
+    return str(request.base_url).rstrip("/")
+
+
+def _endpoint_token() -> str:
+    import secrets as _s
+
+    return _s.token_urlsafe(18)
