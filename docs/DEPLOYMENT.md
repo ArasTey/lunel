@@ -17,16 +17,30 @@ Three supported targets:
 ### Lucity
 
 1. **Fork** this repository to your GitHub account.
-2. **Provision PostgreSQL**: in your Lucity project, add the one-click
-   **PostgreSQL** database. Lucity injects `DATABASE_URL` automatically —
-   Lunel picks it up (no configuration needed).
-3. **Add a service** from your fork:
+2. **Provision PostgreSQL**: in your Lucity project, add a database
+   (e.g. name it `lunel`, PostgreSQL 16). Lucity provisions it via
+   CloudNativePG.
+3. **Wire the database to the service — required.** Lucity does *not*
+   inject database credentials automatically; you must add a **database
+   reference** on the service:
+
+   In the service's variables (dashboard), add:
+
+   | Key | Type | Value |
+   |---|---|---|
+   | `DATABASE_URL` | **database ref** | database `lunel`, key `uri` |
+
+   (This maps to `setServiceVariables` with `databaseRef: {database: "lunel", key: "uri"}` —
+   Lucity injects the full `postgresql://user:pass@host:5432/db` connection
+   string from the CNPG secret and keeps it updated across credential rotations.)
+   Lunel reads `DATABASE_URL` automatically — nothing else to configure.
+4. **Add a service** from your fork:
    - Source: your fork, root directory `/` (repository root)
    - Port: leave the detected port / set `8080`; start command `python main.py`
    - **Generate a domain** in the service settings → this URL is the whole
      platform (console UI, API, and all instance endpoints under `/i/<token>`,
      WebSocket + automatic TLS included).
-4. **Set environment variables** on the service:
+5. **Set environment variables** on the service (service variables):
 
    | Variable | Value |
    |---|---|
@@ -35,11 +49,11 @@ Three supported targets:
    | `LUNEL_ADMIN_GITHUB_LOGIN` | your GitHub login (first admin) |
    | `LUNEL_COOKIE_SECURE` | `1` |
 
-   Everything else is automatic: `DATABASE_URL` is detected, `LUNEL_SECRET_KEY`
-   is generated and persisted on first boot, the worker token is generated
-   internally.
+   Everything else is automatic: `DATABASE_URL` comes from the database ref,
+   `LUNEL_SECRET_KEY` is generated and persisted on first boot, the worker
+   token is generated internally.
 
-5. **Deploy.** Open your domain → sign in with GitHub → **Create Instance** →
+6. **Deploy.** Open your domain → sign in with GitHub → **Create Instance** →
    Deploy → the instance page shows a ready endpoint
    (`https://<your-domain>/i/<token>`) → import the generated link into
    v2rayNG / NekoBox / Streisand.
