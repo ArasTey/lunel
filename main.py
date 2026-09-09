@@ -106,6 +106,50 @@ def _stop_worker() -> None:
     _worker = None
 
 
+def _mask_dsn(dsn: str) -> str:
+    """DSN with credentials masked, for safe boot logging."""
+    from urllib.parse import urlsplit
+
+    try:
+        parts = urlsplit(dsn)
+        host = parts.hostname or "?"
+        port = f":{parts.port}" if parts.port else ""
+        db = parts.path or ""
+        return f"{host}{port}{db}"
+    except ValueError:
+        return "<unparseable dsn>"
+
+
+def resolve_database_url() -> tuple[str, str] | None:
+    """Find PostgreSQL config from platform-injected environment variables.
+
+    Accepts every common injection style:
+    * full URLs: LUNEL_DATABASE_URL, DATABASE_URL, POSTGRES_URL,
+      POSTGRESQL_URL, POSTGRES_CONNECTION_STRING
+    * libpq variables: PGHOST/PGUSER/PGPASSWORD/PGDATABASE/PGPORT and the
+      POSTGRES_HOST/POSTGRES_USER/... variants many platforms inject
+    Returns (dsn, source_name) or None when nothing is configured.
+    """
+    from urllib.parse import quote
+
+    for var in ("LUNEL_DATABASE_URL", "DATABASE_URL", "POSTGRES_URL",
+                "POSTGRESQL_URL", "POSTGRES_CONNECTION_STRING"):
+        val = os.environ.get(var, "").strip()
+        if val:
+            return val, var
+    host = os.environ.get("PGHOST") or os.environ.get("POSTGRES_HOST")
+    if host:
+        user = os.environ.get("PGUSER") or os.environ.get("POSTGRES_USER") or "postgres"
+        password = os.environ.get("PGPASSWORD") or os.environ.get("POSTGRES_PASSWORD") or ""
+        database = os.environ.get("PGDATABASE") or os.environ.get("POSTGRES_DB") or "postgres"
+        port = os.environ.get("PGPORT") or os.environ.get("POSTGRES_PORT") or "5432"
+        auth = quote(user, safe="")
+        if password:
+            auth += ":" + quote(password, safe="")
+        return f"postgresql://{auth}@{host}:{port}/{database}", "PGHOST/POSTGRES_* variables"
+    return None
+
+
 def setup() -> None:
     """Apply zero-config defaults and start the embedded worker (idempotent).
 
@@ -119,9 +163,21 @@ def setup() -> None:
 
     # ---- configuration defaults (zero-config friendly) --------------------
     port = int(os.environ.get("PORT", os.environ.get("LUNEL_CONSOLE_PORT", "8080")))
-    if not os.environ.get("LUNEL_DATABASE_URL") and os.environ.get("DATABASE_URL"):
-        os.environ["LUNEL_DATABASE_URL"] = os.environ["DATABASE_URL"]
-        print("[lunel] using DATABASE_URL from the platform for PostgreSQL", file=sys.stderr)
+    resolved = resolve_database_url()
+    if resolved is None:
+        print(
+            "[lunel] FATAL: no PostgreSQL configuration found.\n"
+            "[lunel]   Provision the one-click PostgreSQL in your project and wire it\n"
+            "[lunel]   to this service (its DATABASE_URL / PG* variables must be\n"
+            "[lunel]   present in this service's environment). Checked:\n"
+            "[lunel]   LUNEL_DATABASE_URL, DATABASE_URL, POSTGRES_URL, POSTGRESQL_URL,\n"
+            "[lunel]   POSTGRES_CONNECTION_STRING, PGHOST/POSTGRES_HOST.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+    os.environ["LUNEL_DATABASE_URL"], db_source = resolved
+    print(f"[lunel] PostgreSQL via {db_source} → {_mask_dsn(os.environ['LUNEL_DATABASE_URL'])}",
+          file=sys.stderr)
     os.environ["LUNEL_SECRET_KEY"] = ensure_secret_key()
     os.environ.setdefault("LUNEL_WORKER_TOKEN", secrets.token_urlsafe(32))
     os.environ.setdefault("LUNEL_PUBLIC_URL", f"http://127.0.0.1:{port}")

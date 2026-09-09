@@ -4,21 +4,94 @@ Migrations are plain SQL executed in order and tracked in schema_migrations.
 """
 from __future__ import annotations
 
+import asyncio
+import ssl as ssl_module
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
 import asyncpg
 
 from .config import settings
+from .logging import get
+
+log = get("runtime", "lunel.console.db")
 
 _pool: asyncpg.Pool | None = None
+
+
+def _normalize_dsn(dsn: str) -> tuple[str, ssl_module.SSLContext | None]:
+    """Normalize a DSN for asyncpg and translate `sslmode=` into an SSL context.
+
+    asyncpg does not parse `sslmode` from the query string; platforms like
+    Railway/Supabase/Neon commonly append it. Returns (dsn_without_sslmode,
+    ssl_context_or_None).
+    """
+    parts = urlsplit(dsn)
+    if parts.scheme == "postgres":
+        parts = parts._replace(scheme="postgresql")
+    query = dict(parse_qsl(parts.query))
+    sslmode = (query.pop("sslmode", "") or query.pop("ssl", "")).lower()
+    dsn2 = urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+    ctx: ssl_module.SSLContext | None = None
+    if sslmode in ("require", "prefer", "verify-ca", "verify-full"):
+        ctx = ssl_module.create_default_context()
+        if sslmode in ("require", "prefer", "verify-ca"):
+            # 'require' means encrypt without certificate verification.
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl_module.CERT_NONE
+    return dsn2, ctx
+
+
+async def _connect_with_retry(dsn: str, ssl_ctx: ssl_module.SSLContext | None) -> asyncpg.Pool:
+    """Connect, tolerating the platform start-up race where the database is
+    still provisioning. Auth/config errors fail immediately with a clear
+    message; connection errors retry for ~90 seconds."""
+    last_error: Exception | None = None
+    for attempt in range(1, 31):
+        try:
+            return await asyncpg.create_pool(
+                dsn, min_size=2, max_size=10, command_timeout=30, ssl=ssl_ctx
+            )
+        except asyncpg.exceptions.InvalidPasswordError as exc:
+            raise RuntimeError(
+                "PostgreSQL rejected the credentials in LUNEL_DATABASE_URL / DATABASE_URL. "
+                "Check the database's user/password variables."
+            ) from exc
+        except asyncpg.exceptions.InvalidCatalogNameError as exc:
+            raise RuntimeError(
+                "PostgreSQL database (the name in the DSN) does not exist yet. "
+                "Check the database name in DATABASE_URL."
+            ) from exc
+        except (OSError, asyncpg.PostgresError) as exc:
+            last_error = exc
+            if attempt in (1, 5, 15, 30):
+                log.warning("database not reachable (attempt %d/30): %s — retrying…",
+                            attempt, type(exc).__name__)
+            await asyncio.sleep(3)
+    host_hint = _mask_dsn(dsn)
+    raise RuntimeError(
+        f"Could not reach PostgreSQL at {host_hint} after 90s of retries "
+        f"({type(last_error).__name__}: {last_error}). Check that the database "
+        "service is running and its variables are wired to this service."
+    )
+
+
+def _mask_dsn(dsn: str) -> str:
+    from urllib.parse import urlsplit
+
+    try:
+        parts = urlsplit(dsn)
+        host = parts.hostname or "?"
+        port = f":{parts.port}" if parts.port else ""
+        return f"{host}{port}{parts.path or ''}"
+    except ValueError:
+        return "<unparseable dsn>"
 
 
 async def init_pool() -> asyncpg.Pool:
     global _pool
     if _pool is None:
-        dsn = settings.database_url
-        # Normalize Railway/Heroku-style URLs to asyncpg requirements.
-        if dsn.startswith("postgres://"):
-            dsn = dsn.replace("postgres://", "postgresql://", 1)
-        _pool = await asyncpg.create_pool(dsn, min_size=2, max_size=10, command_timeout=30)
+        dsn, ssl_ctx = _normalize_dsn(settings.database_url)
+        _pool = await _connect_with_retry(dsn, ssl_ctx)
         await migrate(_pool)
     return _pool
 
