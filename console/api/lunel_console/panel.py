@@ -147,12 +147,18 @@ function api(method,path,body,retry){
   var h={"Content-Type":"application/json"};
   if(CSRF)h["X-Lunel-CSRF"]=CSRF;
   return fetch(path,{method:method,headers:h,credentials:"same-origin",body:body!==undefined?JSON.stringify(body):undefined})
-  .then(function(r){return r.json().catch(function(){return{}}).then(function(d){
+  .then(function(r){
+    // 429 = too fast; wait what the server asks (or 2s) and retry silently
+    if(r.status===429&&(retry||0)<3){
+      var wait=parseInt(r.headers.get("Retry-After")||"2",10)||2;
+      return new Promise(function(res){setTimeout(res,wait*1e3)}).then(function(){return api(method,path,body,(retry||0)+1)});
+    }
+    return r.json().catch(function(){return{}}).then(function(d){
     if(!r.ok){
-      if(r.status===401&&!retry&&!path.startsWith("/auth")){
+      if(r.status===401&&!(retry)&&!path.startsWith("/auth")){
         // confirm the session really died before bouncing the user
         return fetch("/auth/me",{credentials:"same-origin"}).then(function(m){return m.json()}).then(function(me){
-          if(me.authenticated){CSRF=me.csrf_token;return api(method,path,body,true)}
+          if(me.authenticated){CSRF=me.csrf_token;return api(method,path,body,3)}
           USER=null;render();throw new Error("please sign in again");
         });
       }
@@ -171,7 +177,9 @@ var MARK='<svg class="bm" viewBox="0 0 32 32" fill="none"><path d="M16 2.5a13.5 
 // ───────────────────────────── shell/state ─────────────────────────────
 var USER=null, cleanup=null, pollTimer=null, LINKS={github:"https://github.com/ArasTey/lunel",telegram:""};
 function setCleanup(fn){if(cleanup)cleanup();cleanup=fn||null}
-function stopPoll(){if(pollTimer){clearInterval(pollTimer);pollTimer=null}}
+function stopPoll(){if(pollTimer){clearInterval(pollTimer);pollTimer=null}if(hiddenTimer){clearInterval(hiddenTimer);hiddenTimer=null}}
+var hiddenTimer=null;
+function every(ms,fn){return setInterval(function(){if(!document.hidden)fn()},ms)}
 function shell(nav){
   stopPoll();setCleanup(null);
   var app=$("#app");
@@ -249,9 +257,9 @@ function viewDash(){
       '<div class="mt"><span>'+esc(i.region)+"</span><span>"+i.deployments_count+' deploys</span><span>created '+ago(i.created_at)+"</span></div></div>";
   }
   load().then(function(list){
-    pollTimer=setInterval(function(){
+    pollTimer=every(6000,function(){
       if(list.some(function(i){return BUSY[i.status]}))load();
-    },4000);
+    });
   });
 }
 // ───────────────────────────── wizard ─────────────────────────────
@@ -291,7 +299,8 @@ function viewWizard(){
       .then(function(created){return api("POST","/api/instances/"+created.id+"/deploy").then(function(d){return{c:created,d:d}})})
       .then(function(r){
         $("#di").textContent=r.d.deployment_id.slice(0,8);var seen=0;
-        pollTimer=setInterval(function(){
+        pollTimer=every(2000,function(){
+          if(document.hidden)return;
           Promise.all([api("GET","/api/instances/"+r.c.id+"/deployments/"+r.d.deployment_id+"/logs"),api("GET","/api/instances/"+r.c.id+"/deployments")])
           .then(function(rs){
             var logs=rs[0].logs;for(;seen<logs.length;seen++){var e=document.createElement("div");e.className="ll "+logs[seen].level;e.innerHTML='<span class="lv">'+logs[seen].level+"</span> "+esc(logs[seen].message);var dl=$("#dl");if(dl){dl.appendChild(e);dl.scrollTop=dl.scrollHeight}}
@@ -418,10 +427,10 @@ function viewInst(id){
     .catch(function(){});
   }
   refresh().then(function(){
-    pollTimer=setInterval(function(){
+    pollTimer=every(5000,function(){
       if(tab==="logs")pollLogs();
       else if(BUSY[inst.status]||tab==="overview")refresh();
-    },3000);
+    });
   });
   setCleanup(function(){});
 }

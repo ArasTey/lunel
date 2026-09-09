@@ -24,10 +24,10 @@ class Rule:
 
 
 RULES = {
-    "auth": Rule("auth", limit=10, window_seconds=60),
-    "api_write": Rule("api_write", limit=60, window_seconds=60),
-    "api_read": Rule("api_read", limit=300, window_seconds=60),
-    "public": Rule("public", limit=120, window_seconds=60),
+    "auth": Rule("auth", limit=30, window_seconds=60),
+    "api_write": Rule("api_write", limit=240, window_seconds=60),
+    "api_read": Rule("api_read", limit=1200, window_seconds=60),
+    "public": Rule("public", limit=300, window_seconds=60),
 }
 
 
