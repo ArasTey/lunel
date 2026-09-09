@@ -52,6 +52,101 @@ def _page(title: str, body: str, status: int = 200) -> "HTMLResponse":
     return HTMLResponse(FRIENDLY_404.format(title=title, body=body), status_code=status)
 
 
+import json as _json_mod  # noqa: E402
+
+def _singbox_outbound(url: str) -> dict:
+    """vless:// / trojan:// URI -> sing-box outbound. Shadowsocks links pass
+    through parsed minimally; unsupported schemes are skipped by caller."""
+    import base64 as _b64u
+    from urllib.parse import urlparse, parse_qs, unquote
+
+    u = urlparse(url)
+    q = {k: v[0] for k, v in parse_qs(u.query).items()}
+    tag = unquote(u.fragment) or "lunel"
+    common = {"tag": tag}
+    if u.scheme in ("vless", "trojan"):
+        inner = {
+            "server": u.hostname or "",
+            "server_port": u.port or 443,
+            "uuid": u.username or "" if u.scheme == "vless" else None,
+            "password": u.username or "" if u.scheme == "trojan" else None,
+            "tls": {
+                "enabled": q.get("security") == "tls",
+                "server_name": q.get("sni") or u.hostname or "",
+                "utls": {"enabled": True, "fingerprint": q.get("fp", "chrome")} if q.get("fp") else None,
+            },
+            "transport": {
+                "type": "ws",
+                "path": q.get("path", "/"),
+                "headers": {"Host": q.get("host") or u.hostname or ""},
+            } if q.get("type") == "ws" else None,
+        }
+        common["type"] = u.scheme
+        out = {k: v for k, v in inner.items() if v is not None}
+        tls = out.get("tls") or {}
+        if tls.get("utls") is None:
+            tls.pop("utls", None)
+        if out.get("transport") is None:
+            out.pop("transport", None)
+        out.update(common)
+        return out
+    if u.scheme == "ss":
+        userinfo = u.username or ""
+        pad = "=" * (-len(userinfo) % 4)
+        try:
+            method, password = _b64u.b64decode(userinfo + pad).decode().split(":", 1)
+        except Exception:
+            method, password = "aes-256-gcm", ""
+        return {"type": "shadowsocks", "tag": tag, "server": u.hostname or "",
+                "server_port": u.port or 443, "method": method, "password": password}
+    return {"type": u.scheme, "tag": tag}
+
+
+def _clash_proxy(url: str) -> dict | None:
+    """vless/trojan URI -> Clash Meta proxy map (vless needs Meta)."""
+    from urllib.parse import urlparse, parse_qs, unquote
+
+    u = urlparse(url)
+    q = {k: v[0] for k, v in parse_qs(u.query).items()}
+    name = unquote(u.fragment) or "lunel"
+    if u.scheme == "vless":
+        return {"name": name, "type": "vless", "server": u.hostname or "",
+                "port": u.port or 443, "uuid": u.username or "",
+                "udp": True, "tls": q.get("security") == "tls",
+                "servername": q.get("sni") or u.hostname or "",
+                "client-fingerprint": q.get("fp", "chrome"),
+                "network": "ws", "ws-opts": {"path": q.get("path", "/"),
+                "headers": {"Host": q.get("host") or u.hostname or ""}}}
+    if u.scheme == "trojan":
+        return {"name": name, "type": "trojan", "server": u.hostname or "",
+                "port": u.port or 443, "password": u.username or "",
+                "udp": True, "sni": q.get("sni") or u.hostname or "",
+                "client-fingerprint": q.get("fp", "chrome"),
+                "network": "ws", "ws-opts": {"path": q.get("path", "/"),
+                "headers": {"Host": q.get("host") or u.hostname or ""}}}
+    if u.scheme == "ss":
+        import base64 as _b64u
+
+        pad = "=" * (-len(u.username or "") % 4)
+        try:
+            method, password = _b64u.b64decode((u.username or "") + pad).decode().split(":", 1)
+        except Exception:
+            return None
+        return {"name": name, "type": "ss", "server": u.hostname or "",
+                "port": u.port or 443, "cipher": method, "password": password}
+    return None
+
+
+def _clash_quote(s: str) -> str:
+    return '"' + s.replace('"', '\\"') + '"'
+
+
+def _clash_inline(p: dict) -> str:
+    import json as _json
+
+    return _json.dumps(p, ensure_ascii=False)
+
+
 router = APIRouter(include_in_schema=False)
 
 
@@ -111,15 +206,16 @@ async def instance_status_page(token: str, request: Request):
 
 @router.get("/i/{token}/sub")
 async def instance_subscription(token: str, request: Request):
-    """Subscription: ALL protocols of this instance as a base64 client-import
-    body (v2rayNG / NekoBox → import from URL). Auth is the endpoint token
-    itself; the content host comes from ?host=, the panel-announced public
-    host, or the request host — in that order."""
+    """Subscription: ALL protocols of this instance. Auth = endpoint token.
+    Formats via ?fmt=: singbox | clash | (default) base64 v2ray list.
+    Content host: ?host=, panel-announced host, or request host."""
     import base64 as _b64
 
     import httpx as _httpx
 
     from ..config import settings as _settings
+
+    fmt = (request.query_params.get("fmt") or "").strip().lower()
 
     target = await _resolve_endpoint(request, token)
     if target is None:
@@ -156,18 +252,49 @@ async def instance_subscription(token: str, request: Request):
     except Exception as exc:
         return _page("Unavailable", f"Could not read the instance configs: {str(exc)[:160]}",
                      status=502)
-    body = _b64.b64encode("\n".join(links).encode()).decode()
-    title = _b64.b64encode(f"Lunel · {inst['name']}".encode()).decode()
+    title = f"Lunel \u00b7 {inst['name']}"
     from fastapi.responses import Response as _Response
 
-    return _Response(
-        content=body, media_type="text/plain",
-        headers={
-            "profile-title": f"base64:{title}",
+    def _headers(extra: dict | None = None) -> dict:
+        h = {
+            "profile-title": "base64:" + _b64.b64encode(title.encode()).decode(),
             "subscription-userinfo": "upload=0; download=0; total=0; expire=0",
             "profile-update-interval": "24",
-        },
-    )
+            "profile-web-page-url": f"{request.url.scheme}://{request.headers.get('host', host)}",
+            "support-url": "https://t.me/imArasTey",
+        }
+        if extra:
+            h.update(extra)
+        return h
+
+    # Format negotiation:
+    #   ?fmt=singbox  -> sing-box JSON (Outbounds)
+    #   ?fmt=clash    -> Clash YAML (proxies)
+    #   default       -> base64 v2ray list (v2rayNG, NekoBox, Streisand, ArasClient)
+    if fmt in ("singbox", "sing-box", "sb"):
+        import json as _json
+
+        outbounds = [_singbox_outbound(u) for u in links]
+        payload = _json.dumps({"outbounds": outbounds}, ensure_ascii=False, indent=2)
+        return _Response(content=payload, media_type="application/json",
+                         headers=_headers({"subscription-userinfo": "upload=0; download=0; total=0; expire=0"}))
+
+    if fmt in ("clash", "clash-meta", "yaml"):
+        proxies = [_clash_proxy(u) for u in links]
+        proxies = [p for p in proxies if p]
+        names = [p["name"] for p in proxies]
+        payload = (
+            "port: 7890\nsocks-port: 7891\nallow-lan: false\nmode: rule\nlog-level: warning\n"
+            "proxies:\n"
+            + "\n".join("  - " + _clash_inline(p) for p in proxies)
+            + "\nproxy-groups:\n  - name: Lunel\n    type: select\n    proxies:\n"
+            + "".join(f"      - {_clash_quote(n)}\n" for n in names)
+            + "rules:\n  - MATCH,Lunel\n"
+        )
+        return _Response(content=payload, media_type="text/yaml", headers=_headers())
+
+    body = _b64.b64encode("\n".join(links).encode()).decode()
+    return _Response(content=body, media_type="text/plain", headers=_headers())
 
 
 @router.api_route("/i/{token}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])

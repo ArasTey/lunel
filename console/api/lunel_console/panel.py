@@ -362,8 +362,10 @@ function viewInst(id){
     var b=$("#tb");if(!b)return;
     if(tab==="config"){
       b.innerHTML='<div class="card"><div class="row" style="justify-content:space-between"><h3>Subscription <span class="free" style="margin-left:6px">Free</span></h3><button class="btn sm" id="cf-r">Refresh</button></div>'+
-        '<p class="mut" style="font-size:12.5px;margin:6px 0 10px">One URL with <b>all 4 protocols</b> (VLESS, Trojan, Shadowsocks, xHTTP). In v2rayNG/NekoBox: Subscriptions → Add → paste → update.</p>'+
-        '<div class="row"><div class="mono grow" id="suburl" style="background:var(--bg2);border:1px solid var(--bd);border-radius:7px;padding:8px 10px;word-break:break-all"></div><button class="btn sm pri" id="subc">Copy</button><a class="btn sm" id="subo" target="_blank" rel="noopener">Open</a></div></div>'+
+        '<p class="mut" style="font-size:12.5px;margin:6px 0 10px">One URL, <b>all 4 protocols</b> (VLESS, Trojan, Shadowsocks, xHTTP). Add it under Subscriptions in your client — it auto-updates.</p>'+
+        '<div class="row"><div class="mono grow" id="suburl" style="background:var(--bg2);border:1px solid var(--bd);border-radius:7px;padding:8px 10px;word-break:break-all"></div><button class="btn sm pri" id="subc">Copy</button><a class="btn sm" id="subo" target="_blank" rel="noopener">Open</a></div>'+
+        '<div class="row" style="margin-top:9px;gap:6px"><span class="ftx" style="font-size:11.5px">Formats:</span>'+
+        '<button class="btn sm" id="sub-v2">v2ray/Clash Verge</button><button class="btn sm" id="sub-sb">sing-box</button><button class="btn sm" id="sub-cl">Clash Meta</button></div>'+
         '<div class="card" style="margin-top:14px"><div class="row" style="justify-content:space-between"><h3>Individual configs</h3><button class="btn sm" id="cf-r">Refresh</button></div><div id="cf-b" class="mut">Loading…</div></div>';
       function loadCfg(){
         // tell the server the public host we're browsing on (edge hides it)
@@ -373,7 +375,11 @@ function viewInst(id){
           var subUrl=location.origin+"/i/"+(d.endpoint_path||"").replace("/i/","")+"/sub";
           if(d.endpoint_path){$("#suburl").textContent=subUrl;
             $("#subc").onclick=function(){navigator.clipboard&&navigator.clipboard.writeText(subUrl).then(function(){toast("Subscription URL copied","ok",2500)})};
-            $("#subo").href=subUrl+"?host="+location.host;}
+            $("#subo").href=subUrl+"?host="+location.host;
+            var v2=location.origin+"/i/"+d.endpoint_path.split("/i/")[1]+"/sub?host="+location.host;
+            $("#sub-v2").onclick=function(){navigator.clipboard&&navigator.clipboard.writeText(v2).then(function(){toast("v2ray sub URL copied","ok",2500)})};
+            $("#sub-sb").onclick=function(){navigator.clipboard&&navigator.clipboard.writeText(v2+"&fmt=singbox").then(function(){toast("sing-box sub URL copied","ok",2500)})};
+            $("#sub-cl").onclick=function(){navigator.clipboard&&navigator.clipboard.writeText(v2+"&fmt=clash").then(function(){toast("Clash sub URL copied","ok",2500)})};}
           if(!d.configs||!d.configs.length){
             $("#cf-b").innerHTML='<span class="ftx">'+esc(d.error||"No configs yet — if the instance shows Running, press Redeploy once (instances created before this fix get their links on redeploy).")+"</span>";
             return;
