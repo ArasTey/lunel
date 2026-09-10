@@ -233,21 +233,34 @@ async def instance_proxy(instance_id: str, path: str, request: Request, _=Depend
     handle = driver.handles.get(instance_id)
     if handle is not None and handle.meta.get("api_token"):
         headers.append(("Authorization", f"Bearer {handle.meta['api_token']}"))
-    client = httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}", timeout=30)
+    # Stream responses: xHTTP downlinks are long-lived streams that never
+    # "complete" — buffering them (client.request) would hang and die.
+    client = httpx.AsyncClient(
+        base_url=f"http://127.0.0.1:{port}",
+        timeout=httpx.Timeout(connect=10.0, read=None, write=None, pool=None),
+    )
     try:
-        upstream = await client.request(
+        up_req = client.build_request(
             request.method, url, headers=headers,
             content=await request.body(),
         )
-        return Response(
-            content=upstream.content, status_code=upstream.status_code,
+        upstream = await client.send(up_req, stream=True)
+        from starlette.background import BackgroundTask
+
+        async def _cleanup():
+            await upstream.aclose()
+            await client.aclose()
+
+        return StreamingResponse(
+            upstream.aiter_raw(),
+            status_code=upstream.status_code,
             headers={k: v for k, v in upstream.headers.items()
                      if k.lower() not in ("content-length", "transfer-encoding", "connection")},
+            background=BackgroundTask(_cleanup),
         )
     except httpx.HTTPError:
-        raise HTTPException(status_code=502, detail="upstream unavailable")
-    finally:
         await client.aclose()
+        raise HTTPException(status_code=502, detail="upstream unavailable")
 
 
 @app.websocket("/worker/api/instances/{instance_id}/ws-proxy/{path:path}")

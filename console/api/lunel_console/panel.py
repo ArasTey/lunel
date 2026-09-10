@@ -206,6 +206,7 @@ function shell(nav){
     '<div class="sbft"><div class="who"><b>'+esc(USER.name||USER.login)+'</b><span>@'+esc(USER.login)+'</span></div>'+
     '<button class="btn sm" style="margin-left:auto" id="lg">Sign out</button></div></aside>'+
     '<div class="main"><div class="topbar">'+MARK+'<b style="font-size:14px">Lunel</b>'+
+    '<button class="btn sm menu-btn" id="mb">&#9776;</button>'+
     '<button class="btn sm" style="margin-left:auto" id="lgm">Sign out</button></div>'+
     '<div class="ct" id="view"></div>'+
     '<nav class="bnav"><button class="ni '+(nav==="dash"?"act":"")+'" data-nav="dash">'+ic("dash")+'<span>Home</span></button>'+
