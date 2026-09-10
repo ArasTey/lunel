@@ -186,7 +186,7 @@ def generate_ss_link(host: str, port: int, cipher: str, password: str, remark: s
 async def _find_matching_ss_link(ctx: RelayContext, first_bytes: bytes):
     """SS carries no header credential; identify the link by successful AEAD
     decryption against each active shadowsocks link (same as RVG)."""
-    candidates = await ctx.links.snapshot()
+    candidates = ctx.links.snapshot()
     for link in candidates.values():
         if link.protocol != "shadowsocks" or not link.is_allowed():
             continue

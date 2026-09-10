@@ -121,7 +121,9 @@ async def get_instance(instance_id: str, request: Request,
         out["endpoint_url"] = path_dom["url"]
     out.update({
         "config": {
-            "protocol": cfg["protocol"], "cpu_limit": cfg["cpu_limit"],
+            "protocol": cfg["protocol"],
+            "protocols": (cfg["protocols"].split(",") if cfg["protocols"] else [cfg["protocol"]]),
+            "cpu_limit": cfg["cpu_limit"],
             "memory_mb": cfg["memory_mb"], "max_processes": cfg["max_processes"],
             "core_version": cfg["core_version"],
         } if cfg else None,
@@ -151,6 +153,12 @@ class CreateInstanceBody:
         if not isinstance(config, dict):
             raise HTTPException(status_code=400, detail="config must be an object")
         self.protocol = str(config.get("protocol") or "vless-ws")
+        protos = config.get("protocols")
+        if isinstance(protos, list):
+            cleaned = [p for p in protos if p in PROTOCOLS]
+            self.protocols = cleaned or ["vless-ws"]
+        else:
+            self.protocols = None  # fall back to the primary protocol
         self.cpu_limit = float(config.get("cpu_limit") or 0.5)
         self.memory_mb = int(config.get("memory_mb") or 256)
         self.core_version = str(config.get("core_version") or "latest")[:40]
@@ -201,9 +209,10 @@ async def create_instance(request: Request, user: asyncpg.Record = Depends(curre
         secrets.token_urlsafe(24), now_iso,
     )
     await pool.execute(
-        "INSERT INTO instance_configs (instance_id, protocol, cpu_limit, memory_mb, core_version, updated_at) "
-        "VALUES ($1, $2, $3, $4, $5, $6)",
-        instance_id, body.protocol, body.cpu_limit, body.memory_mb, body.core_version, now_iso,
+        "INSERT INTO instance_configs (instance_id, protocol, cpu_limit, memory_mb, core_version, protocols, updated_at) "
+        "VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        instance_id, body.protocol, body.cpu_limit, body.memory_mb, body.core_version,
+        ",".join(body.protocols) if body.protocols else body.protocol, now_iso,
     )
     # Every instance gets a private path endpoint immediately (works on every
     # platform incl. Lucity; real hostnames come from the provider where supported).

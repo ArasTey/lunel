@@ -305,6 +305,7 @@ CREATE TABLE IF NOT EXISTS instance_configs (
     max_processes INTEGER NOT NULL DEFAULT 128,
     link_quota_bytes INTEGER NOT NULL DEFAULT 0,
     core_version TEXT NOT NULL DEFAULT 'latest',
+    protocols TEXT,
     updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS workers (

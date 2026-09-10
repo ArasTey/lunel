@@ -303,7 +303,7 @@ function viewWizard(){
       $("#f-n").oninput=function(e){m.name=e.target.value}}
     else if(step===1){b.innerHTML='<h3 style="margin:0 0 10px">Step 2 — Region</h3><div class="optg" id="rg"><div class="opt sel" data-id="local"><div class="t">Local node</div><div class="d">Default worker on this platform</div></div></div>';
       Array.prototype.forEach.call(b.querySelectorAll(".opt"),function(o){o.onclick=function(){m.region=o.dataset.id;Array.prototype.forEach.call(b.querySelectorAll(".opt"),function(x){x.classList.toggle("sel",x===o)})}})}
-    else if(step===2){b.innerHTML='<h3 style="margin:0 0 10px">Step 3 — Protocols & resources</h3><div class="fld"><div class="optg">'+PROTOS.map(function(p){return '<div class="opt '+(m.protocols.indexOf(p[0])>=0?"sel":"")+'" data-id="'+p[0]+'"><div class="t">'+p[1]+'</div><div class="d">'+p[2]+"</div></div>"}).join("")+'</div><p class="ftx" style="font-size:11.5px;margin-top:7px">Pick one or more \u2014 each selected protocol gets its own config in the subscription.</p></div><div class="row"><div class="fld" style="width:160px;margin:0"><label>CPU (cores)</label><select class="inp" id="f-c">'+[0.25,0.5,1,2,4].map(function(x){return '<option value="'+x+'" '+(m.cpu===x?"selected":"")+">"+x+"</option>"}).join("")+'</select></div><div class="fld" style="width:160px;margin:0"><label>Memory</label><select class="inp" id="f-m">'+[128,256,512,1024,2048].map(function(x){return '<option value="'+x+'" '+(m.mem===x?"selected":"")+">"+x+" MB</option>"}).join("")+"</select></div></div>";
+    else if(step===2){b.innerHTML='<h3 style="margin:0 0 10px">Step 3 — Protocol & resources</h3><div class="fld"><div class="optg">'+PROTOS.map(function(p){return '<div class="opt '+(m.protocol===p[0]?"sel":"")+'" data-id="'+p[0]+'"><div class="t">'+p[1]+'</div><div class="d">'+p[2]+"</div></div>"}).join("")+'</div></div><div class="row"><div class="fld" style="width:160px;margin:0"><label>CPU (cores)</label><select class="inp" id="f-c">'+[0.25,0.5,1,2,4].map(function(x){return '<option value="'+x+'" '+(m.cpu===x?"selected":"")+">"+x+"</option>"}).join("")+'</select></div><div class="fld" style="width:160px;margin:0"><label>Memory</label><select class="inp" id="f-m">'+[128,256,512,1024,2048].map(function(x){return '<option value="'+x+'" '+(m.mem===x?"selected":"")+">"+x+" MB</option>"}).join("")+"</select></div></div>";
       Array.prototype.forEach.call(b.querySelectorAll(".opt"),function(o){o.onclick=function(){
         var i=m.protocols.indexOf(o.dataset.id);
         if(i>=0){if(m.protocols.length>1){m.protocols.splice(i,1);o.classList.remove("sel")}}
@@ -317,7 +317,7 @@ function viewWizard(){
   $("#nx").onclick=function(){
     if(step===0){if(m.name.trim().length<2){toast("Give the instance a name (2+ chars)","err");return}step=1}
     else if(step===4){step=5;show();$("#nx").disabled=true;
-      api("POST","/api/instances",{name:m.name,region:m.region,config:{protocol:m.protocols[0],protocols:m.protocols,cpu_limit:m.cpu,memory_mb:m.mem}})
+      api("POST","/api/instances",{name:m.name,region:m.region,config:{protocol:m.protocol,cpu_limit:m.cpu,memory_mb:m.mem}})
       .then(function(created){return api("POST","/api/instances/"+created.id+"/deploy").then(function(d){return{c:created,d:d}})})
       .then(function(r){
         $("#di").textContent=r.d.deployment_id.slice(0,8);var seen=0;

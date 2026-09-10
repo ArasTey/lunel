@@ -43,7 +43,7 @@ app.include_router(gateway_router)
 async def panel_home():
     from .panel import PAGE
 
-    return HTMLResponse(PAGE)
+    return HTMLResponse(PAGE, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/health")
@@ -71,7 +71,7 @@ async def spa_fallback(request, exc):
         return JSONResponse({"detail": "not found"}, status_code=404)
     from .panel import PAGE
 
-    return HTMLResponse(PAGE)
+    return HTMLResponse(PAGE, headers={"Cache-Control": "no-store"})
 
 
 @contextlib.asynccontextmanager

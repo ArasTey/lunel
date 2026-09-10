@@ -317,13 +317,18 @@ async def _provision_default_link(pool: asyncpg.Pool, deployment_id: str,
         node_url = worker_svc.worker_url_for(
             (dep["node_id"] if dep else None) or _settings.default_worker_node
         )
-        all_protocols = [
-            ("vless-ws", "VLESS"), ("trojan-ws", "Trojan"),
-            ("shadowsocks", "Shadowsocks"), ("xhttp-packet-up", "xHTTP"),
-        ]
+        proto_row = await pool.fetchrow(
+            "SELECT protocols FROM instance_configs WHERE instance_id = $1", instance_id
+        )
+        selected = (proto_row["protocols"].split(",") if proto_row and proto_row["protocols"] else None) \
+            or [row["protocol"] or "vless-ws"]
+        pretty_map = {"vless-ws": "VLESS", "trojan-ws": "Trojan",
+                      "shadowsocks": "Shadowsocks", "xhttp-packet-up": "xHTTP",
+                      "xhttp-stream-up": "xHTTP"}
+        wanted = [(p, pretty_map.get(p, p)) for p in selected]
         created = 0
         async with httpx.AsyncClient(timeout=30) as client:
-            for proto, pretty in all_protocols:
+            for proto, pretty in wanted:
                 resp = await client.post(
                     f"{node_url.rstrip('/')}/worker/api/instances/{instance_id}"
                     f"/proxy/core/api/links",

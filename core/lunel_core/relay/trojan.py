@@ -109,7 +109,7 @@ async def trojan_ws_tunnel(ctx: RelayContext, ws: WebSocket) -> None:
     # Resolve the link by password hash. Wire-compatible with RVG: the trojan
     # password is the link UUID, hashed with SHA-224 on the wire (cached).
     link = None
-    candidates = await ctx.links.snapshot()
+    candidates = ctx.links.snapshot()
     for candidate in candidates.values():
         if candidate.protocol != "trojan-ws" or not candidate.is_allowed():
             continue

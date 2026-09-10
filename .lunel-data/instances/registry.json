@@ -1,8 +1,8 @@
 {
- "8d3698322bbc23725df04b52cef36a59": {
-  "deployment_id": "35d79d3298d616982039d9804bf585c6",
+ "d3ff4fed6c02021cf1d2599ffe24778f": {
+  "deployment_id": "bf5137b922891f8ab6c6bfd76505a7a4",
   "core_version": "latest",
-  "api_token": "JFhAderNVLOh6CSPwyBFgQo5efLjhpad",
+  "api_token": "_TZmdJI813e_b-6caiFsdrfIcu9KvWWy",
   "public_host": "",
   "cpu_limit": 0.5,
   "memory_mb": 256,

@@ -150,6 +150,12 @@ MIGRATIONS: list[tuple[str, str]] = [
         """,
     ),
     (
+        "0006_protocols",
+        """
+        ALTER TABLE instance_configs ADD COLUMN IF NOT EXISTS protocols TEXT;
+        """,
+    ),
+    (
         "0005_public_host",
         """
         ALTER TABLE instances ADD COLUMN IF NOT EXISTS public_host TEXT;
