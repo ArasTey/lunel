@@ -1,12 +1,22 @@
 {
- "d3ff4fed6c02021cf1d2599ffe24778f": {
-  "deployment_id": "bf5137b922891f8ab6c6bfd76505a7a4",
+ "a42e30175e48c49cbae92512e0103ef3": {
+  "deployment_id": "f49081a505c4379f9ef059407641e705",
   "core_version": "latest",
-  "api_token": "_TZmdJI813e_b-6caiFsdrfIcu9KvWWy",
+  "api_token": "ahBaVj1CKWKexkBXS1maYIVGrBUYwa06",
   "public_host": "",
   "cpu_limit": 0.5,
   "memory_mb": 256,
   "max_processes": 128,
   "port": 19000
+ },
+ "ae020592fae05a8704b946bc5ea0be5c": {
+  "deployment_id": "7fffa690a8a8fddd564401aaefac6bc1",
+  "core_version": "latest",
+  "api_token": "9gLMdDzpGlL2DuMs4fw_F4rA7DIhNeSe",
+  "public_host": "",
+  "cpu_limit": 0.5,
+  "memory_mb": 256,
+  "max_processes": 128,
+  "port": 19001
  }
 }

@@ -288,7 +288,7 @@ var PROTOS=[["vless-ws","VLESS over WebSocket","Widest client support (v2rayNG, 
 ["xhttp-packet-up","VLESS xHTTP (packet-up)","HTTP-native transport, resists connection shaping."]];
 function viewWizard(){
   shell("new");
-  var m={name:"",region:"local",protocol:"vless-ws",cpu:0.5,mem:256},step=0;
+  var m={name:"",region:"local",protocol:"vless-ws",protocols:["vless-ws"],cpu:0.5,mem:256},step=0;
   var v=$("#view");
   v.innerHTML='<div class="ph"><div><h1>Create Instance</h1><div class="sub">Name it, pick a protocol, deploy. No servers, no YAML.</div></div></div>'+
     '<div class="row" id="stb" style="gap:4px;margin-bottom:20px"></div><div class="card" id="sb"></div>'+
