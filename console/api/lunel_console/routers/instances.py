@@ -119,6 +119,7 @@ async def get_instance(instance_id: str, request: Request,
     path_dom = next((d for d in domains if d["kind"] == "path"), None)
     if path_dom is not None:
         out["endpoint_url"] = path_dom["url"]
+        out["endpoint_path"] = f"/i/{path_dom['domain']}"
     out.update({
         "config": {
             "protocol": cfg["protocol"],
@@ -216,10 +217,15 @@ async def create_instance(request: Request, user: asyncpg.Record = Depends(curre
     )
     # Every instance gets a private path endpoint immediately (works on every
     # platform incl. Lucity; real hostnames come from the provider where supported).
+    # The endpoint token is an AES-GCM ciphertext of the instance id — opaque,
+    # non-enumerable, and tamper-proof (see security/token_codec.py).
+    from ..security.token_codec import encode_token
+
     await pool.execute(
         "INSERT INTO domains (id, instance_id, domain, kind, tls, created_at) "
         "VALUES ($1, $2, $3, 'path', TRUE, $4)",
-        secrets.token_hex(16), instance_id, secrets.token_urlsafe(18), _utcnow(),
+        secrets.token_hex(16), instance_id,
+        encode_token(instance_id, settings.secret_key), _utcnow(),
     )
     await _record_activity(pool, user["id"], instance_id, "instance",
                            f"Instance '{body.name}' created")

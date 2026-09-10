@@ -55,104 +55,135 @@ def _page(title: str, body: str, status: int = 200) -> "HTMLResponse":
 import json as _json_mod  # noqa: E402
 
 def _sub_html_page(title: str, configs: list, host: str, sub_path: str,
-                   qr_path: str = "/api/qr-public") -> str:
-    """Marzban-style subscription page: QRs, copy buttons, client links.
-    Browsers get it; client apps are UA-sniffed away to the raw payload."""
+                   qr_path: str = "") -> str:
+    """Premium subscription page: QRs inline, copy buttons, app links,
+    EN/FA toggle. Browsers get it; clients are UA-sniffed to raw data."""
     import html as _html
+    import io
+
+    import qrcode
+    import qrcode.image.svg
 
     esc = _html.escape
-    rows = ""
+
+    def qr_svg(text: str) -> str:
+        img = qrcode.make(text, image_factory=qrcode.image.svg.SvgPathImage,
+                          box_size=11, border=1)
+        buf = io.BytesIO()
+        img.save(buf)
+        return buf.getvalue().decode()
+
+    PROTO_META = {
+        "vless-ws": ("VLESS", "WebSocket", "#6f9bff"),
+        "trojan-ws": ("Trojan", "WebSocket", "#ef6b73"),
+        "shadowsocks": ("Shadowsocks", "AEAD", "#4ecb95"),
+        "xhttp-packet-up": ("xHTTP", "packet-up", "#e3b341"),
+        "xhttp-stream-up": ("xHTTP", "stream-up", "#e3b341"),
+    }
+    cards = ""
     for i, c in enumerate(configs):
-        idx = f"c{i}"
-        rows += f'''
-        <div class="c">
-          <div class="h"><b>{esc(c["label"])}</b><span class="chip">{esc(c["protocol"])}</span></div>
-          <div class="u" id="{idx}">{esc(c["share_url"])}</div>
-          <div class="row"><button onclick="cp('{idx}')">Copy</button><button class="g" onclick="qr('{idx}',this)">QR</button></div>
-          <div class="qr" id="q-{idx}"></div>
+        pname, transport, color = PROTO_META.get(c["protocol"], (c["protocol"], "", "#6f9bff"))
+        qr = qr_svg(c["share_url"])
+        cards += f'''
+        <div class="cfg" style="--pc:{color}">
+          <div class="ch"><div><span class="pn">{esc(pname)}</span><span class="tr">{esc(transport)}</span></div><span class="chip">{esc(c["protocol"])}</span></div>
+          <div class="u" id="u{i}">{esc(c["share_url"])}</div>
+          <div class="row">
+            <button onclick="cp(\'u{i}\')">Copy <span class="en">config</span><span class="fa" hidden>کانفیگ</span></button>
+            <button class="g" onclick="tg(\'q{i}\',this)">QR</button>
+          </div>
+          <div class="qr" id="q{i}">{qr}</div>
         </div>'''
+
     sub_url = f"https://{host}{sub_path}"
-    return f"""<!doctype html><html><head><meta charset="utf-8">
+    sub_qr = qr_svg(sub_url)
+    sb_url = f"https://{host}{sub_path}?fmt=singbox&host={host}"
+    cl_url = f"https://{host}{sub_path}?fmt=clash&host={host}"
+
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{esc(title)}</title>
 <style>
 *{{box-sizing:border-box}}
-body{{background:#0a0c10;color:#e7ebf3;font-family:-apple-system,'Segoe UI',Roboto,sans-serif;margin:0;padding:28px 14px 60px}}
-.w{{max-width:560px;margin:0 auto}}
-.b{{display:flex;align-items:center;gap:10px;margin-bottom:16px}}
-.moon{{width:26px;height:26px;color:#d8e0ee}}
-h1{{font-size:20px;margin:0}}
-.f{{font-size:10.5px;letter-spacing:1px;font-weight:700;color:#4ecb95;border:1px solid rgba(78,203,149,.4);border-radius:999px;padding:2px 9px}}
-.s{{color:#9aa4b8;font-size:13px;margin:0 0 16px}}
-.card{{background:#12151c;border:1px solid #1e2430;border-radius:12px;padding:14px;margin-bottom:12px}}
-.h{{display:flex;justify-content:space-between;align-items:center;gap:8px}}
-.h b{{font-size:13.5px}}
-.chip{{font-size:10.5px;color:#9aa4b8;border:1px solid #2a3242;border-radius:999px;padding:1px 7px;font-family:monospace}}
-.u{{font-family:monospace;font-size:11px;color:#9aa4b8;background:#0a0c10;border:1px solid #1e2430;border-radius:7px;padding:7px 9px;margin:8px 0;word-break:break-all;max-height:74px;overflow:auto}}
+body{{background:#07090d;color:#e7ebf3;font-family:-apple-system,'Segoe UI',Roboto,'Vazirmatn',sans-serif;margin:0;padding:0 14px 70px;
+background-image:radial-gradient(1000px 460px at 50% -140px,rgba(111,155,255,.14),transparent),radial-gradient(700px 300px at 85% 110%,rgba(78,203,149,.07),transparent)}}
+.w{{max-width:600px;margin:0 auto}}
+.top{{display:flex;align-items:center;gap:10px;padding:26px 4px 4px}}
+.moon{{width:34px;height:34px;color:#d8e0ee}}
+h1{{font-size:22px;margin:0;letter-spacing:.3px}}
+.sub2{{color:#9aa4b8;font-size:12.5px}}
+.f{{margin-left:auto;font-size:10px;letter-spacing:1.5px;font-weight:800;color:#4ecb95;border:1px solid rgba(78,203,149,.45);border-radius:999px;padding:3px 11px}}
+.hero{{text-align:center;padding:10px 0 22px}}
+.hero h2{{margin:0 0 6px;font-size:17px}}
+.hero p{{margin:0;color:#9aa4b8;font-size:13px}}
+.card{{background:linear-gradient(180deg,#12151c,#10131a);border:1px solid #1e2430;border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 12px 32px rgba(0,0,0,.35)}}
+.card h3{{margin:0 0 4px;font-size:14px}}
+.lbl{{color:#9aa4b8;font-size:12.5px;margin:0 0 10px}}
+.subu{{display:flex;gap:8px;align-items:stretch}}
+.subu .u{{flex:1;font-family:ui-monospace,monospace;font-size:11px;background:#0a0c10;border:1px solid #1e2430;border-radius:8px;padding:9px 10px;word-break:break-all}}
+.btn{{padding:8px 14px;border-radius:8px;border:1px solid #d8e0ee;background:#d8e0ee;color:#0b0d11;font-weight:650;font-size:12.5px;cursor:pointer}}
+.btn.g{{background:#171b24;border-color:#2a3242;color:#e7ebf3}}
+.fmts{{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}}
+.fmt{{font-size:11px;color:#9aa4b8;border:1px solid #2a3242;border-radius:999px;padding:3px 11px;text-decoration:none}}
+.fmt:hover{{color:#e7ebf3}}
+.cfg{{background:#10131a;border:1px solid #1e2430;border-left:3px solid var(--pc);border-radius:12px;padding:13px 14px;margin-bottom:11px}}
+.ch{{display:flex;justify-content:space-between;align-items:center;gap:8px}}
+.pn{{font-weight:700;font-size:13.5px}}
+.tr{{color:#5d6678;font-size:11px;margin-left:7px}}
+.chip{{font-size:10px;color:#9aa4b8;border:1px solid #2a3242;border-radius:999px;padding:1px 8px;font-family:monospace}}
+.u{{font-family:ui-monospace,monospace;font-size:10.5px;color:#9aa4b8;background:#0a0c10;border:1px solid #1e2430;border-radius:8px;padding:7px 9px;margin:9px 0;word-break:break-all;max-height:64px;overflow:auto}}
 .row{{display:flex;gap:7px}}
-button{{padding:6px 13px;border-radius:7px;border:1px solid #d8e0ee;background:#d8e0ee;color:#0b0d11;font-weight:600;font-size:12.5px;cursor:pointer}}
-button.g{{background:#171b24;border-color:#2a3242;color:#e7ebf3}}
-.qr{{margin-top:10px;display:none}}
-.qr svg{{width:210px;height:210px;background:#fff;border-radius:8px;display:block;margin:0 auto}}
-.sub{{background:#12151c;border:1px solid #1e2430;border-radius:12px;padding:14px;margin-bottom:16px}}
+.btn{{padding:8px 14px;border-radius:8px;border:1px solid #d8e0ee;background:#d8e0ee;color:#0b0d11;font-weight:650;font-size:12.5px;cursor:pointer}}
+.btn.g{{background:#171b24;border-color:#2a3242;color:#e7ebf3}}
+.qr{{display:none;margin-top:11px;text-align:center}}
+.qr svg{{width:216px;height:216px;background:#fff;border-radius:10px}}
 .apps{{display:flex;flex-wrap:wrap;gap:7px;margin-top:9px}}
-.apps a{{font-size:11.5px;color:#6f9bff;text-decoration:none;border:1px solid #2a3242;border-radius:999px;padding:3px 10px}}
-.ft{{text-align:center;color:#5d6678;font-size:11.5px;margin-top:22px}}
-.ft a{{color:#6f9bff}}
-</style></head><body><div class="w">
-<div class="b">
-<svg class="moon" viewBox="0 0 32 32" fill="none"><path d="M16 2.5a13.5 13.5 0 1 0 13.06 17.02 11 11 0 0 1-14.58-14.58A13.6 13.6 0 0 1 16 2.5Z" fill="currentColor"/><path d="M4 29.5h24" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-<h1>Lunel</h1><span class="f">&#9679; FREE</span>
+.apps a{{font-size:11.5px;color:#6f9bff;text-decoration:none;border:1px solid #2a3242;border-radius:999px;padding:4px 12px}}
+.apps a:hover{{border-color:#6f9bff}}
+.ft{{text-align:center;color:#5d6678;font-size:11.5px;margin-top:26px}}
+.ft a{{color:#6f9bff;text-decoration:none}}
+.fa{{display:none}}
+body.fa .en{{display:none}}
+body.fa .fa{{display:inline}}
+#lang{{position:fixed;top:14px;right:14px;z-index:9;background:#12151c;border:1px solid #2a3242;color:#9aa4b8;border-radius:999px;padding:4px 12px;font-size:11px;cursor:pointer}}
+</style></head><body>
+<button id="lang" onclick="document.body.classList.toggle('fa');this.textContent=document.body.classList.contains('fa')?'EN':'فارسی'">فارسی</button>
+<div class="w">
+<div class="top"><svg class="moon" viewBox="0 0 32 32" fill="none"><path d="M16 2.5a13.5 13.5 0 1 0 13.06 17.02 11 11 0 0 1-14.58-14.58A13.6 13.6 0 0 1 16 2.5Z" fill="currentColor"/><path d="M4 29.5h24" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+<div><h1>Lunel</h1><div class="sub2">{esc(title)}</div></div><span class="f">&#9679; FREE</span></div>
+<div class="hero"><h2 class="en">Your configs are ready</h2><h2 class="fa" hidden>کانفیگ‌های شما آماده است</h2>
+<p class="en">Import the subscription into your client, or copy each config individually.</p>
+<p class="fa" hidden>سابسکریپشن را وارد کلاینت کنید یا هر کانفیگ را جدا کپی کنید.</p></div>
+<div class="card">
+<h3 class="en">Subscription — all protocols</h3><h3 class="fa" hidden>سابسکریپشن — همه پروتکل‌ها</h3>
+<p class="lbl en">One URL, every config, auto-updates. Add it under Subscriptions in your client.</p>
+<p class="lbl fa" hidden>یک لینک برای همه کانفیگ‌ها — در بخش Subscriptions اپ وارد کنید.</p>
+<div class="subu"><div class="u" id="subu">{esc(sub_url)}</div><button class="btn" onclick="cp('subu')"><span class="en">Copy</span><span class="fa" hidden>کپی</span></button></div>
+<div class="fmts">
+<a class="fmt" href="{esc(sb_url)}" target="_blank" rel="noopener">sing-box JSON</a>
+<a class="fmt" href="{esc(cl_url)}" target="_blank" rel="noopener">Clash Meta YAML</a>
+<a class="fmt" href="{esc(sub_url)}" target="_blank" rel="noopener">v2ray base64</a>
 </div>
-<p class="s"><b>{esc(title)}</b> \u2014 your personal configs. Copy, scan, or import the subscription below.</p>
-<div class="sub">
-  <b style="font-size:13px">Subscription (all protocols)</b>
-  <div class="u" id="sub">https://{esc(host)}{esc(sub_path)}</div>
-  <div class="row"><button onclick="cp('sub')">Copy sub URL</button></div>
-  <div class="apps">
-    <a href="https://github.com/MatsuriDayo/v2rayNG/releases" target="_blank" rel="noopener">v2rayNG</a>
-    <a href="https://github.com/MatsuriDayo/nekoray/releases" target="_blank" rel="noopener">NekoBox</a>
-    <a href="https://apps.apple.com/app/streisand/id6490569503" target="_blank" rel="noopener">Streisand</a>
-    <a href="https://github.com/ArasTey/ArasClient/releases" target="_blank" rel="noopener">ArasClient</a>
-  </div>
+<div class="qr" style="display:block;margin-top:12px">{sub_qr}</div>
+<div style="color:#5d6678;font-size:10.5px;text-align:center">Scan the subscription with your client</div>
 </div>
-{rows}
+<div class="card"><h3 class="en">Individual configs</h3><h3 class="fa" hidden>کانفیگ‌های جداگانه</h3>{cards}</div>
+<div class="card"><h3 class="en">Need a client app?</h3><h3 class="fa" hidden>کلاینت موردنیاز</h3>
+<div class="apps">
+<a href="https://github.com/MatsuriDayo/v2rayNG/releases" target="_blank" rel="noopener">v2rayNG</a>
+<a href="https://github.com/MatsuriDayo/nekoray/releases" target="_blank" rel="noopener">NekoBox</a>
+<a href="https://apps.apple.com/app/streisand/id6490569503" target="_blank" rel="noopener">Streisand</a>
+<a href="https://github.com/ArasTey/ArasClient/releases" target="_blank" rel="noopener">ArasClient</a>
+<a href="https://github.com/Happ-proxy/happ-desktop/releases" target="_blank" rel="noopener">Happ</a>
+<a href="https://github.com/SagerNet/sing-box/releases" target="_blank" rel="noopener">sing-box</a>
+</div></div>
 <p class="ft">Powered by <a href="https://github.com/ArasTey/lunel" target="_blank" rel="noopener">Lunel</a> &#183; <a href="https://t.me/imArasTey" target="_blank" rel="noopener">@imArasTey</a></p>
 </div>
 <script>
-function cp(id){{
-  var t=document.getElementById(id).textContent;
-  navigator.clipboard.writeText(t).then(function(){{toast('Copied to clipboard')}});
-}}
-function qr(id,btn){{
-  var box=document.getElementById('q-'+id);
-  if(box.style.display==='block'){{box.style.display='none';btn.textContent='QR';return}}
-  var text=document.getElementById(id).textContent;
-  var x=new XMLHttpRequest();
-  x.open('POST','{esc(qr_path)}');
-  x.setRequestHeader('Content-Type','application/json');
-  x.onload=function(){{if(x.status===200){{box.innerHTML=x.responseText;box.style.display='block';btn.textContent='Hide'}}else{{toast('QR failed')}}}};
-  x.send(JSON.stringify({{text:text}}));
-}}
-function toast(m){{
-  var t=document.createElement('div');
-  t.textContent=m;
-  t.style.cssText='position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:#171b24;border:1px solid #2a3242;color:#e7ebf3;padding:9px 16px;border-radius:8px;font-size:13px;z-index:99';
-  document.body.appendChild(t);setTimeout(function(){{t.remove()}},2200);
-}}
-document.querySelectorAll('.qr svg').forEach(function(s){{s.style.background='#fff'}});
-document.querySelectorAll('.u').forEach(function(el){{
-  var m=el.textContent.match(/^(vless|trojan|ss):\/\/([^@]+)@([^\/?#]+)([\s\S]*)$/);
-  if(m){{
-    var ih=m[3].split(':')[0];
-    if(ih==='127.0.0.1'||ih==='localhost'||ih==='0.0.0.0'){{
-      el.textContent=m[1]+'://'+m[2]+'@'+location.host+m[4];
-    }}
-  }}
-}});
-document.getElementById('sub').textContent=location.origin+'{esc(sub_path)}?host='+location.host;
+function cp(id){{navigator.clipboard.writeText(document.getElementById(id).textContent.trim()).then(function(){{
+var t=document.createElement('div');t.textContent='Copied \u2713';t.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#171b24;border:1px solid #2a3242;color:#4ecb95;padding:8px 18px;border-radius:999px;font-size:13px;z-index:99';document.body.appendChild(t);setTimeout(function(){{t.remove()}},1800)}})}}
+function tg(id,btn){{var b=document.getElementById(id);var open=b.style.display!=='block';b.style.display=open?'block':'none';btn.textContent=open?'Hide':'QR'}}
 </script></body></html>"""
-
 
 def _singbox_outbound(url: str) -> dict:
     """vless:// / trojan:// URI -> sing-box outbound. Shadowsocks links pass
@@ -253,20 +284,38 @@ router = APIRouter(include_in_schema=False)
 async def _resolve_endpoint(request: Request, token: str) -> dict | None:
     """endpoint token -> {instance_id, worker_url, status}"""
     pool = get_pool(request)
-    row = await pool.fetchrow(
-        """
-        SELECT i.id, i.status,
-               (SELECT d.domain FROM domains d WHERE d.instance_id = i.id
-                 AND d.is_active = TRUE AND d.kind = 'path'
-                 ORDER BY d.created_at DESC LIMIT 1) AS endpoint_token,
-               (SELECT dep.node_id FROM deployments dep WHERE dep.instance_id = i.id
-                 ORDER BY dep.started_at DESC LIMIT 1) AS node_id
-        FROM instances i
-        WHERE i.id IN (SELECT instance_id FROM domains
-                        WHERE kind = 'path' AND domain = $1 AND is_active = TRUE)
-        """,
-        token,
-    )
+    from ..config import settings as _s
+    from ..security.token_codec import decode_token
+
+    instance_id = decode_token(token, _s.secret_key)
+    if instance_id is not None:
+        row = await pool.fetchrow(
+            """
+            SELECT i.id, i.status,
+                   (SELECT d.domain FROM domains d WHERE d.instance_id = i.id
+                     AND d.is_active = TRUE AND d.kind = 'path'
+                     ORDER BY d.created_at DESC LIMIT 1) AS endpoint_token,
+                   (SELECT dep.node_id FROM deployments dep WHERE dep.instance_id = i.id
+                     ORDER BY dep.started_at DESC LIMIT 1) AS node_id
+            FROM instances i WHERE i.id = $1
+            """,
+            instance_id,
+        )
+    else:
+        row = await pool.fetchrow(
+            """
+            SELECT i.id, i.status,
+                   (SELECT d.domain FROM domains d WHERE d.instance_id = i.id
+                     AND d.is_active = TRUE AND d.kind = 'path'
+                     ORDER BY d.created_at DESC LIMIT 1) AS endpoint_token,
+                   (SELECT dep.node_id FROM deployments dep WHERE dep.instance_id = i.id
+                     ORDER BY dep.started_at DESC LIMIT 1) AS node_id
+            FROM instances i
+            WHERE i.id IN (SELECT instance_id FROM domains
+                            WHERE kind = 'path' AND domain = $1 AND is_active = TRUE)
+            """,
+            token,
+        )
     if row is not None and row["endpoint_token"] is None:
         row = None
     if row is None or row["status"] != "running":

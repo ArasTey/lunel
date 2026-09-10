@@ -58,7 +58,9 @@ async def create_domain(instance_id: str, request: Request,
         "SELECT domain FROM domains WHERE instance_id = $1 AND kind = 'path' AND is_active = TRUE",
         instance_id,
     )
-    new_token = _endpoint_token()
+    from ..security.token_codec import encode_token
+
+    new_token = encode_token(instance_id, settings.secret_key)
     if old:
         await pool.execute(
             "UPDATE domains SET is_active = FALSE WHERE instance_id = $1 AND kind = 'path'",
@@ -135,7 +137,3 @@ def _console_origin(request: Request) -> str:
     return f"{proto}://{host}"
 
 
-def _endpoint_token() -> str:
-    import secrets as _s
-
-    return _s.token_urlsafe(18)
