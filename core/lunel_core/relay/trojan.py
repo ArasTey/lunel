@@ -38,12 +38,13 @@ def parse_trojan_request(chunk: bytes, expected_hash_hex: str) -> tuple[str, int
     Layout: 56-byte hex SHA-224 of the password \\r\\n SOCKS5-ish request
     (ATYP, addr, port) \\r\\n payload...
     """
-    if len(chunk) < 1 + 56 + 2 + 1 + 2 + 2:
+    if len(chunk) < 1 + 56 + 2 + 1 + 1 + 1 + 2 + 2:
         raise ValueError("chunk too small")
     given = chunk[:56].decode("ascii", errors="ignore").lower()
     if not secrets.compare_digest(given, expected_hash_hex.lower()):
         raise PermissionError("authentication failed")
     pos = 56 + 2  # skip CRLF
+    pos += 1      # CMD byte (0x01 CONNECT) — real clients always send it
     atyp = chunk[pos]
     pos += 1
     if atyp == ATYP_IPV4:
@@ -69,7 +70,7 @@ def parse_trojan_request(chunk: bytes, expected_hash_hex: str) -> tuple[str, int
 
 
 def build_trojan_request(password: str, address: str, port: int, payload: bytes = b"") -> bytes:
-    """Client-side encoder used by the integration tests."""
+    """Client-side encoder used by the integration tests (wire-correct: CMD byte)."""
     try:
         import ipaddress
 
@@ -84,6 +85,7 @@ def build_trojan_request(password: str, address: str, port: int, payload: bytes 
     return (
         trojan_password_hash(password).encode()
         + b"\r\n"
+        + b"\x01"          # CMD CONNECT
         + addr
         + port.to_bytes(2, "big")
         + b"\r\n"
