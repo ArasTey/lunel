@@ -31,9 +31,12 @@ def generate_share_link(link: Link, host: str, remark_prefix: str = "Lunel",
     remark = f"{remark_prefix}-{link.label}"
     p = path_prefix.rstrip("/")
     proto = link.protocol
-    # WebSocket over TLS must negotiate HTTP/1.1 (see state.Link); emit the
-    # wire-correct ALPN regardless of what the stored link says.
-    alpn = "http/1.1"
+    # ALPN per transport: WebSocket needs HTTP/1.1-only (h2 breaks the WS
+    # upgrade through CDN edges); xHTTP is HTTP-native and wants h2 first.
+    if "xhttp" in proto:
+        alpn = "h2,http/1.1"
+    else:
+        alpn = "http/1.1"
 
     if proto == "shadowsocks":
         password = link.ss_password or ""

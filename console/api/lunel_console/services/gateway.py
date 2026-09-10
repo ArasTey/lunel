@@ -287,7 +287,9 @@ async def _resolve_endpoint(request: Request, token: str) -> dict | None:
     from ..config import settings as _s
     from ..security.token_codec import decode_token
 
+    log.info("resolve enter: token[:20]=%s", token[:20])
     instance_id = decode_token(token, _s.secret_key)
+    log.info("resolve: token[:16]=%s decoded=%s", token[:16], instance_id)
     if instance_id is not None:
         row = await pool.fetchrow(
             """
@@ -554,7 +556,10 @@ async def instance_ws_gateway(ws: WebSocket, token: str, path: str):
     await ws.accept()
     try:
         target = await _resolve_endpoint(ws, token)
-    except Exception:
+    except Exception as _exc:
+        import traceback as _tb
+
+        log.error("WS resolve failed: %s | %s", _exc, _tb.format_exc()[-400:])
         target = None
     if target is None:
         await ws.close(code=1008, reason="unknown or inactive instance endpoint")
