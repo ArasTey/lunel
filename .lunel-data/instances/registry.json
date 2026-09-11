@@ -1,12 +1,52 @@
 {
- "750fede714196cdd7c465c29909613d1": {
-  "deployment_id": "89a22fb1a4cdb39b423ab01faae0ee2b",
+ "4979f5cf4eb163344c6de277ffa184f1": {
+  "deployment_id": "0b0a6d20be679a3081529d9ba261872e",
   "core_version": "latest",
-  "api_token": "8t--as9usxVuCjwJ0yZMsi0WZWUt97Ky",
+  "api_token": "aoAFs7bekcYyxFHH88kH5wpYqs4o-0dk",
   "public_host": "",
   "cpu_limit": 0.5,
   "memory_mb": 256,
   "max_processes": 128,
   "port": 19005
+ },
+ "8c848d57a12dfe20445c0b94c40e0035": {
+  "deployment_id": "c0062180880f0067bc5107626c25930c",
+  "core_version": "latest",
+  "api_token": "lmEhdZbrJVEA6Qdc-fB5kHZ8i7kAzxvG",
+  "public_host": "",
+  "cpu_limit": 0.5,
+  "memory_mb": 256,
+  "max_processes": 128,
+  "port": 19006
+ },
+ "82c9ed9a6acc67f6974ba075a8c95c3d": {
+  "deployment_id": "d3f65a7cf52348ba1f3802591369da8d",
+  "core_version": "latest",
+  "api_token": "zWdLjyU1uIsmB4YK7IUrG0_C7OcLNVDs",
+  "public_host": "",
+  "cpu_limit": 0.5,
+  "memory_mb": 256,
+  "max_processes": 128,
+  "port": 19007
+ },
+ "d96fb48024084f3cdda722b81b606b26": {
+  "deployment_id": "1ec4af4028319361a21c70edbea8143c",
+  "core_version": "latest",
+  "api_token": "ZGcW26f10P8VbD18v1-qtD_Vrdtfk0-i",
+  "public_host": "",
+  "cpu_limit": 0.5,
+  "memory_mb": 256,
+  "max_processes": 128,
+  "port": 19008
+ },
+ "c111b7fd898e4103d45212f75b0fc2f6": {
+  "deployment_id": "3b684c46a5c16b2bbc44f9d703ce1f69",
+  "core_version": "latest",
+  "api_token": "ztzeG4O8V6u0w7593FTQwmDzZEG5H1NM",
+  "public_host": "",
+  "cpu_limit": 0.5,
+  "memory_mb": 256,
+  "max_processes": 128,
+  "port": 19009
  }
 }

@@ -321,6 +321,8 @@ async def _resolve_endpoint(request: Request, token: str) -> dict | None:
     if row is not None and row["endpoint_token"] is None:
         row = None
     if row is None or row["status"] != "running":
+        log.info("resolve MISS: decoded=%s row=%s status=%s", instance_id,
+                 row is not None, row["status"] if row else None)
         return None
     from ..services.workers import worker_url_for
 
@@ -430,13 +432,15 @@ async def instance_subscription(token: str, request: Request):
     from fastapi.responses import Response as _Response
 
     # ── Browser detection: HTML page for people, raw payload for clients ──
-    # Client apps (v2rayNG, NekoBox, sing-box, Clash, Streisand…) send UA
-    # fragments that don't look like a browser. Explicit ?fmt= always wins.
+    # DEFAULT IS RAW: proxy clients (v2rayN, v2rayNG, Happ, …) may send
+    # browser-like or empty User-Agents, so UA guessing alone would feed them
+    # the HTML page and break imports. HTML is served only when the request
+    # looks like a real web browser: Mozilla-style UA *and* "Accept:
+    # text/html" (browsers always send both; proxy clients never do).
+    # Explicit ?fmt= always forces raw data.
     ua = (request.headers.get("user-agent") or "").lower()
-    client_markers = ("v2ray", "neko", "sing-box", "singbox", "sfa", "sfi",
-                      "clash", "mihomo", "stash", "flclash", "streisand",
-                      "happ", "karing", "shadowrocket", "aras")
-    looks_like_browser = "mozilla" in ua and not any(m in ua for m in client_markers)
+    accept = (request.headers.get("accept") or "").lower()
+    looks_like_browser = "mozilla" in ua and "text/html" in accept
 
     if looks_like_browser and not fmt:
         from fastapi.responses import HTMLResponse

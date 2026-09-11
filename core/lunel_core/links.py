@@ -37,46 +37,55 @@ def generate_share_link(link: Link, host: str, remark_prefix: str = "Lunel",
         alpn = "h2,http/1.1"
     else:
         alpn = "http/1.1"
+    from urllib.parse import quote as _qa
+
+    alpn = _qa(alpn, safe="")  # emit as alpn=h2%2Chttp%2F1.1 like real clients
 
     if proto == "shadowsocks":
         password = link.ss_password or ""
         cipher = link.ss_cipher or DEFAULT_CIPHER
         return generate_ss_link(host, 443, cipher, password, remark, path_prefix=p)
 
+    # xray clients percent-encode the path query value (path=%2F...) — match
+    # their emission so strict parsers import cleanly.
+    from urllib.parse import quote as _q
+
+    from urllib.parse import quote as _qp
+
     if proto == "trojan-ws":
         params = {
             "security": "tls", "type": "ws", "host": host,
-            "path": f"{p}/trojan-ws", "sni": host, "fp": link.fingerprint, "alpn": alpn,
+            "path": _qp(f"{p}/trojan-ws", safe=""), "sni": host, "fp": link.fingerprint, "alpn": alpn,
         }
-        query = "&".join(f"{k}={quote(str(v))}" for k, v in params.items())
+        query = "&".join(f"{k}={v}" for k, v in params.items())
         port_part = "" if ":" in host else ":443"
         return f"trojan://{link.uuid}@{host}{port_part}?{query}#{quote(remark)}"
 
     if proto.startswith("trojan-xhttp-"):
         mode = proto.replace("trojan-xhttp-", "")
-        path = f"{p}/txhttp-siz10/{mode}/{link.uuid}"
+        path = _qp(f"{p}/txhttp-siz10/{mode}/{link.uuid}", safe="")
         params = {
             "security": "tls", "type": "xhttp", "mode": mode, "host": host,
             "path": path, "sni": host, "fp": link.fingerprint, "alpn": alpn,
         }
-        query = "&".join(f"{k}={quote(str(v))}" for k, v in params.items())
+        query = "&".join(f"{k}={v}" for k, v in params.items())
         port_part = "" if ":" in host else ":443"
         return f"trojan://{link.uuid}@{host}{port_part}?{query}#{quote(remark)}"
 
     if proto == "vless-ws":
-        path = f"{p}/ws/{link.uuid}"
+        path = _qp(f"{p}/ws/{link.uuid}", safe="")
         params = {
             "encryption": "none", "security": "tls", "type": "ws", "host": host,
             "path": path, "sni": host, "fp": link.fingerprint, "alpn": alpn,
         }
     else:
         mode = proto.replace("xhttp-", "") if proto.startswith("xhttp-") else "packet-up"
-        path = f"{p}/xhttp-siz10/{mode}/{link.uuid}"
+        path = _qp(f"{p}/xhttp-siz10/{mode}/{link.uuid}", safe="")
         params = {
             "encryption": "none", "security": "tls", "type": "xhttp", "mode": mode,
             "host": host, "path": path, "sni": host, "fp": link.fingerprint, "alpn": alpn,
         }
-    query = "&".join(f"{k}={quote(str(v))}" for k, v in params.items())
+    query = "&".join(f"{k}={v}" for k, v in params.items())
     port_part = "" if ":" in host else ":443"
     return f"vless://{link.uuid}@{host}{port_part}?{query}#{quote(remark)}"
 
