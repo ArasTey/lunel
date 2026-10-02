@@ -364,16 +364,43 @@ function viewLogin(){
   };
   $("#p").addEventListener("keydown",function(e){if(e.key==="Enter")$("#go").click()});
 }
+function renderPing(d){
+  var head=d.reachable_from_iran
+    ? '<div class="warnbox" style="border-color:rgba(78,203,149,.4);background:rgba(78,203,149,.08);color:#8fe3c0"><b>Reachable from Iran.</b> Clients there should connect fine.</div>'
+    : '<div class="warnbox"><b>Not reachable from Iran.</b> Change the domain or the server location \u2014 as it is, users in Iran cannot connect.</div>';
+  if(d.pending)head+='<div class="ftx" style="font-size:11.5px;margin:7px 0 0">Some probes are still running, so treat this as preliminary.</div>';
+  var rows=(d.nodes||[]).map(function(n){
+    var col=n.reachable?"var(--grn)":"var(--red)";
+    var detail=n.reachable?("OK \u00b7 "+n.best_ms+" ms"):(n.total?"no reply":"no result");
+    return '<div class="row" style="justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--bd)">'+
+      '<span>'+esc(n.country_name||n.country)+'</span>'+
+      '<span class="mono" style="color:'+col+'">'+esc(detail)+'</span></div>';
+  }).join("");
+  var link=d.report_url?'<div style="margin-top:9px"><a class="ftx mono" href="'+esc(d.report_url)+'" target="_blank" rel="noopener">Full report \u2197</a></div>':"";
+  return head+'<div style="margin-top:9px">'+rows+"</div>"+link;
+}
 // ───────────────────────────── dashboard ─────────────────────────────
 function viewDash(){
   shell("dash");
   var v=$("#view");
   v.innerHTML='<div class="ph"><div><h1>Dashboard</h1><div class="sub">Your Lunel instances at a glance.</div></div>'+
     '<div class="ha"><button class="btn pri" data-go="new">+ Create Instance</button><button class="btn" data-admin="backup">Data management</button></div></div>'+
+    '<div class="card" id="pingCard" style="margin-bottom:16px"><div class="row" style="justify-content:space-between;gap:9px"><div><h3 style="margin:0">Ping check \u2014 is your domain reachable from Iran?</h3><div class="ftx" style="font-size:11.5px" id="pingHint">Probes your domain from several regions. If Iran cannot reach it, clients in Iran will not connect \u2014 change the domain or the server location.</div></div><button class="btn" id="pingBtn">Check ping</button></div><div id="pingOut" style="margin-top:11px"></div></div>'+
     '<div class="sgs" id="sgs"></div><h3 style="margin:0 0 10px;font-size:13.5px">Instances</h3><div id="il"></div>'+
     '<div class="card" style="margin-top:22px"><h3>Recent activity</h3><div id="ac" class="mut">—</div></div>';
   Array.prototype.forEach.call(v.querySelectorAll("[data-go]"),function(b){b.onclick=function(){nav_(b.dataset.go)}});
   Array.prototype.forEach.call(v.querySelectorAll("[data-admin]"),function(b){b.onclick=function(){window.__admin_tab=b.dataset.admin;nav_("admin")}});
+  var pingBtn=$("#pingBtn"),pingOut=$("#pingOut");
+  if(pingBtn)pingBtn.onclick=function(){
+    var b=pingBtn;b.disabled=true;b.textContent="Checking\u2026";
+    pingOut.innerHTML='<span class="mut">Pinging from multiple regions\u2026</span>';
+    api("GET","/api/reachability").then(function(d){
+      b.disabled=false;b.textContent="Check ping";pingOut.innerHTML=renderPing(d);
+    }).catch(function(e){
+      b.disabled=false;b.textContent="Check ping";
+      pingOut.innerHTML='<div class="warnbox">Could not run the check: '+esc(e.message)+"</div>";
+    });
+  };
   var t=null;
   function load(){
     return Promise.all([api("GET","/api/instances"),api("GET","/api/activity")]).then(function(rs){

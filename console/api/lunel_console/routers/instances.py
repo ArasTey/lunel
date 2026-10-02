@@ -557,6 +557,30 @@ async def my_activity(request: Request, user: asyncpg.Record = Depends(current_u
                           "ts": r["created_at"].isoformat()} for r in rows]}
 
 
+@router.get("/reachability")
+async def check_reachability(request: Request, user: asyncpg.Record = Depends(current_user)):
+    """Probe a public domain from several regions and report Iran reachability.
+
+    The host is operator-controlled, so it is validated as a public domain
+    before anything is sent upstream; loopback, private and reserved targets
+    are refused.
+    """
+    from ..services.pingcheck import PingCheckError, check_reachability as run
+
+    host = (request.query_params.get("host") or "").strip()
+    if not host:
+        cfg_rows = await get_pool(request).fetch(
+            "SELECT public_host FROM instances WHERE user_id = $1 AND status <> 'deleted' "
+            "AND public_host IS NOT NULL LIMIT 1", user["id"],
+        )
+        host = (cfg_rows[0]["public_host"] if cfg_rows else "") or ""
+    try:
+        return await run(host)
+    except PingCheckError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:  # upstream unavailable
+        raise HTTPException(status_code=502, detail=f"check service unavailable: {str(exc)[:120]}")
+
 async def _record_activity(pool, user_id, instance_id, kind, message, level="info"):
     await pool.execute(
         "INSERT INTO activity_events (user_id, instance_id, kind, level, message, created_at) "
