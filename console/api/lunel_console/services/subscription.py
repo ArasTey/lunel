@@ -88,8 +88,23 @@ def _config_card(config: dict, number: int) -> str:
     </div>'''
 
 
+def format_usage(value: int) -> str:
+    """Human-readable traffic amount that grows past GB for heavy use."""
+    value = max(0, int(value or 0))
+    if value >= 1024 ** 4:
+        return f"{value / 1024 ** 4:.2f} TB"
+    if value >= 1024 ** 3:
+        gb = value / 1024 ** 3
+        return f"{gb:.2f} GB" if gb < 10 else f"{gb:.1f} GB"
+    if value >= 1024 ** 2:
+        return f"{value / 1024 ** 2:.1f} MB"
+    if value >= 1024:
+        return f"{value / 1024:.1f} KB"
+    return f"{value} B"
+
+
 def render_subscription(title: str, configs: list, host: str, sub_path: str,
-                        qr_path: str = "") -> str:
+                        qr_path: str = "", usage: dict | None = None) -> str:
     """Keep browser-announced hosts when clients import the copied subscription."""
     sub_url = f"https://{host}{sub_path}?{urlencode({'host': host})}"
     qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M, border=0)
@@ -97,6 +112,23 @@ def render_subscription(title: str, configs: list, host: str, sub_path: str,
     qr.make(fit=True)
     now = datetime.now(timezone.utc)
     cards = [{"share_url": TELEGRAM_CONFIG}] + [c for c in configs if c["share_url"] != TELEGRAM_CONFIG]
+    used = int((usage or {}).get("used_bytes") or 0)
+    limit = int((usage or {}).get("limit_bytes") or 0)
+    used_text = f"{format_usage(used)} used"
+    if limit > 0:
+        remaining = max(0, limit - used)
+        remaining_text = format_usage(remaining)
+        bar_pct = max(2, min(100, round(used / limit * 100)))
+        bar_color = "var(--green)" if used < limit * 0.9 else "var(--amber)"
+    else:
+        remaining_text = "∞"
+        bar_pct = 100
+        bar_color = "var(--blue)"
+    if usage and not configs and int((usage.get("expired") or 0)) > 0:
+        remaining_text = "Expired"
+        bar_pct = 0
+        bar_color = "var(--danger)"
+        used_text = "All configs expired or over quota"
     values = {
         "BRAND": "Lunel",
         "TITLE": escape(title),
@@ -108,5 +140,9 @@ def render_subscription(title: str, configs: list, host: str, sub_path: str,
             + ('' if configs else '<div class="empty-configs">No configurations available</div>'),
         "YEAR": str(now.year),
         "UPDATED": now.strftime("%Y/%m/%d %H:%M:%S UTC"),
+        "USED_TEXT": escape(used_text),
+        "REMAINING_TEXT": escape(remaining_text),
+        "BAR_WIDTH": f"{bar_pct}%",
+        "BAR_COLOR": bar_color,
     }
     return re.sub(r"@@([A-Z_]+)@@", lambda match: values[match[1]], _template())

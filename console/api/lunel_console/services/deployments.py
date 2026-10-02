@@ -318,10 +318,15 @@ async def _provision_default_link(pool: asyncpg.Pool, deployment_id: str,
             (dep["node_id"] if dep else None) or _settings.default_worker_node
         )
         proto_row = await pool.fetchrow(
-            "SELECT protocols FROM instance_configs WHERE instance_id = $1", instance_id
+            "SELECT protocols, link_quota_bytes, expires_at FROM instance_configs "
+            "WHERE instance_id = $1", instance_id
         )
         selected = (proto_row["protocols"].split(",") if proto_row and proto_row["protocols"] else None) \
             or [row["protocol"] or "vless-ws"]
+        # Per-instance policy: Core enforces both, so an expired or over-quota
+        # link stops relaying and drops out of the subscription on refresh.
+        quota_bytes = int(proto_row["link_quota_bytes"]) if proto_row and proto_row["link_quota_bytes"] else 0
+        expires_at = proto_row["expires_at"] if proto_row and proto_row["expires_at"] else None
         pretty_map = {"vless-ws": "VLESS", "trojan-ws": "Trojan",
                       "shadowsocks": "Shadowsocks", "xhttp-packet-up": "xHTTP",
                       "xhttp-stream-up": "xHTTP",
@@ -336,7 +341,8 @@ async def _provision_default_link(pool: asyncpg.Pool, deployment_id: str,
                 resp = await client.post(
                     f"{node_url.rstrip('/')}/worker/api/instances/{instance_id}"
                     f"/proxy/core/api/links",
-                    json={"label": f"{row['name']} · {pretty}", "protocol": proto},
+                    json={"label": f"{row['name']} · {pretty}", "protocol": proto,
+                          "limit_bytes": quota_bytes, "expires_at": expires_at},
                     headers={"Authorization": f"Bearer {_settings.worker_token}",
                              "Content-Type": "application/json"},
                 )

@@ -311,8 +311,10 @@ async def instance_subscription(token: str, request: Request):
                          "Content-Type": "application/json"},
             )
             resp.raise_for_status()
-            configs = [c for c in resp.json().get("links", []) if c.get("share_url")]
+            payload = resp.json()
+            configs = [c for c in payload.get("links", []) if c.get("share_url")]
             links = [c["share_url"] for c in configs]
+            usage = payload.get("usage") or {}
     except Exception as exc:
         return _page("Unavailable", f"Could not read the instance configs: {str(exc)[:160]}",
                      status=502)
@@ -334,12 +336,15 @@ async def instance_subscription(token: str, request: Request):
         from fastapi.responses import HTMLResponse
 
         return HTMLResponse(_sub_html_page(title, configs, host, f"/i/{token}/sub",
-                                           qr_path=f"/i/{token}/api/qr"))
+                                           qr_path=f"/i/{token}/api/qr", usage=usage))
 
     def _headers(extra: dict | None = None) -> dict:
+        # subscription-userinfo lets clients (v2rayNG, NekoBox, …) show real usage.
         h = {
             "profile-title": "base64:" + _b64.b64encode(title.encode()).decode(),
-            "subscription-userinfo": "upload=0; download=0; total=0; expire=0",
+            "subscription-userinfo": (
+                f"upload=0; download={int(usage.get('used_bytes') or 0)}; "
+                f"total={int(usage.get('limit_bytes') or 0)}; expire=0"),
             "profile-update-interval": "24",
             "profile-web-page-url": f"{request.url.scheme}://{request.headers.get('host', host)}",
         }

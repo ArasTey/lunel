@@ -181,4 +181,12 @@ MIGRATIONS: list[tuple[str, str]] = [
         ALTER TABLE users ALTER COLUMN github_id DROP NOT NULL;
         """,
     ),
+    (
+        # Must stay last: the ALTERs need instance_configs, created by 0001_init.
+        "0007_instance_expires_at",
+        """
+        ALTER TABLE instance_configs ADD COLUMN IF NOT EXISTS expires_at TEXT;
+        ALTER TABLE instance_configs ADD COLUMN IF NOT EXISTS link_quota_bytes BIGINT NOT NULL DEFAULT 0;
+        """,
+    ),
 ]

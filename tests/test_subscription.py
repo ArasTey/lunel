@@ -29,7 +29,8 @@ class SubscriptionTests(unittest.TestCase):
         self.assertIn('buildQrSvg', page)
         self.assertNotIn('cdnjs.cloudflare.com', page)
         self.assertNotIn('<?', page)
-        self.assertIn('Not reported', page)
+        self.assertIn('Remaining', page)
+        self.assertNotIn('Not reported', page)
         self.assertIn('/i/token/ws/uuid', page)
         self.assertIn('http/1.1', page)
         self.assertIn(CONFIGS[0]['share_url'], unescape(page))
@@ -71,6 +72,29 @@ class SubscriptionTests(unittest.TestCase):
         page = render_subscription('Empty', [], 'example.test', '/i/token/sub')
         self.assertIn('No configurations available', page)
         self.assertIn('Configurations (0)', page)
+        self.assertIn('∞', page)
+
+    def test_usage_is_formatted_in_gb(self):
+        page = render_subscription('Usage', CONFIGS, 'example.test', '/i/token/sub',
+                                   usage={"used_bytes": 5 * 1024 ** 3, "limit_bytes": 0})
+        self.assertIn('5.00 GB used', page)
+        self.assertIn('>∞<', page)
+        self.assertNotIn('Not reported', page)
+
+        capped = render_subscription('Usage', CONFIGS, 'example.test', '/i/token/sub',
+                                     usage={"used_bytes": 30 * 1024 ** 3,
+                                            "limit_bytes": 50 * 1024 ** 3})
+        self.assertIn('30.0 GB used', capped)
+        self.assertIn('20.0 GB', capped)
+        self.assertIn('width:60%', capped)
+
+    def test_usage_survives_unlimited_and_tiny_values(self):
+        page = render_subscription('Usage', CONFIGS, 'example.test', '/i/token/sub',
+                                   usage={"used_bytes": 700 * 1024 ** 2, "limit_bytes": 1024 ** 2})
+        self.assertIn('width:100%', page)
+        self.assertIn('700.0 MB used', page)
+        self.assertIn('0 B', page)
+        self.assertNotIn('@@', page)
 
     def test_formats(self):
         asyncio.run(self._formats())
@@ -102,6 +126,47 @@ class SubscriptionTests(unittest.TestCase):
                 result = await client.get('/i/token/sub?fmt=clash', headers=browser)
                 self.assertIn('proxies:', result.text)
                 self.assertNotIn('<!DOCTYPE', result.text)
+
+
+class QuotaPolicyTests(unittest.TestCase):
+    """Per-instance traffic quota and expiry reach Core's link policy."""
+
+    def test_quota_and_duration_convert_to_policy(self):
+        from lunel_console.routers.instances import CreateInstanceBody
+
+        body = CreateInstanceBody({"name": "Prod", "config": {
+            "protocol": "vless-ws", "quota_gb": 30, "duration_days": 30}})
+        self.assertEqual(body.quota_bytes, 30 * 1024 ** 3)
+        self.assertIsNotNone(body.expires_at)
+
+        unlimited = CreateInstanceBody({"name": "Prod", "config": {"protocol": "vless-ws"}})
+        self.assertEqual(unlimited.quota_bytes, 0)
+        self.assertIsNone(unlimited.expires_at)
+
+    def test_quota_rejects_out_of_range(self):
+        from fastapi import HTTPException
+        from lunel_console.routers.instances import CreateInstanceBody
+
+        for bad in ({"quota_gb": -1}, {"quota_gb": 2000}, {"duration_days": -5},
+                    {"duration_days": 4000}):
+            with self.assertRaises(HTTPException):
+                CreateInstanceBody({"name": "Prod", "config": {"protocol": "vless-ws", **bad}})
+
+    def test_core_stops_expired_and_exhausted_links(self):
+        """Core is what actually cuts the user off once quota or time runs out."""
+        from datetime import datetime, timedelta, timezone
+
+        from lunel_core.state import Link
+
+        past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        future = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+
+        self.assertTrue(Link("a", "L", "vless-ws").is_allowed())
+        self.assertTrue(Link("b", "L", "vless-ws", limit_bytes=1024,
+                             expires_at=future).is_allowed())
+        self.assertFalse(Link("c", "L", "vless-ws", limit_bytes=1024,
+                              used_bytes=1024).is_allowed())
+        self.assertFalse(Link("d", "L", "vless-ws", expires_at=past).is_allowed())
 
 
 if __name__ == '__main__':

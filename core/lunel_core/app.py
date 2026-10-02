@@ -221,7 +221,12 @@ class Core:
                     "protocol": link.protocol,
                     "share_url": generate_share_link(link, host, path_prefix=prefix),
                 })
-            return {"links": out}
+            totals = await self.links.totals()
+            used = max(int(self.stats.total_bytes), int(totals.get("used_bytes") or 0))
+            limit = int(totals.get("limit_bytes") or 0)
+            return {"links": out, "usage": {"used_bytes": used, "limit_bytes": limit,
+                                           "expired": int(totals.get("expired") or 0),
+                                           "count": len(out)}}
 
         @app.post("/core/api/state/flush")
         async def core_state_flush(_=Depends(guard)):

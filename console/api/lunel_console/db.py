@@ -304,6 +304,7 @@ CREATE TABLE IF NOT EXISTS instance_configs (
     memory_mb INTEGER NOT NULL DEFAULT 256,
     max_processes INTEGER NOT NULL DEFAULT 128,
     link_quota_bytes INTEGER NOT NULL DEFAULT 0,
+    expires_at TEXT,
     core_version TEXT NOT NULL DEFAULT 'latest',
     protocols TEXT,
     updated_at TEXT NOT NULL
@@ -397,6 +398,24 @@ CREATE TABLE IF NOT EXISTS oauth_states (
 POSTGRES_MIGRATIONS = None  # imported lazily below to reuse the SQL list
 
 
+async def _ensure_sqlite_columns(conn: "_SqliteDatabase") -> None:
+    """Add columns introduced after a database was first created.
+
+    SQLite's CREATE TABLE IF NOT EXISTS silently skips existing tables, so
+    new columns must be applied with an idempotent ALTER.
+    """
+    wanted = {"instance_configs": [("expires_at", "TEXT")]}
+    for table, columns in wanted.items():
+        try:
+            info = await conn.fetch(f"PRAGMA table_info({table})")
+        except Exception:
+            continue
+        existing = {row["name"] for row in info}
+        for name, decl in columns:
+            if name not in existing:
+                await conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+
+
 async def init_pool() -> None:
     """Initialise the database facade. Selects SQLite when the DSN says so,
     or when no PostgreSQL URL is configured at all (zero-config mode)."""
@@ -408,6 +427,7 @@ async def init_pool() -> None:
         _sqlite = _SqliteDatabase(dsn)
         await _sqlite.connect()
         await _sqlite.conn_executescript(SQLITE_SCHEMA)
+        await _ensure_sqlite_columns(_sqlite)
         db = _sqlite
         await _seed_default_admin()
         log.info("Lunel Console database: embedded SQLite (%s)", _mask_sqlite(dsn))
@@ -433,6 +453,7 @@ async def init_pool() -> None:
         _sqlite = _SqliteDatabase(sqlite_dsn)
         await _sqlite.connect()
         await _sqlite.conn_executescript(SQLITE_SCHEMA)
+        await _ensure_sqlite_columns(_sqlite)
         db = _sqlite
         await _seed_default_admin()
         log.warning(

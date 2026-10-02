@@ -164,6 +164,25 @@ class CreateInstanceBody:
         self.cpu_limit = float(config.get("cpu_limit") or 0.5)
         self.memory_mb = int(config.get("memory_mb") or 256)
         self.core_version = str(config.get("core_version") or "latest")[:40]
+        # Traffic quota (GB) and lifetime (days). 0 means unlimited.
+        self.quota_gb = float(config.get("quota_gb") or 0)
+        self.duration_days = int(config.get("duration_days") or 0)
+        if self.quota_gb < 0 or self.quota_gb > 1024:
+            raise HTTPException(status_code=400, detail="quota_gb must be 0-1024")
+        if not (0 <= self.duration_days <= 3650):
+            raise HTTPException(status_code=400, detail="duration_days must be 0-3650")
+
+    @property
+    def quota_bytes(self) -> int:
+        return int(self.quota_gb * 1024 ** 3)
+
+    @property
+    def expires_at(self) -> str | None:
+        if self.duration_days <= 0:
+            return None
+        from datetime import timedelta
+
+        return (_utcnow() + timedelta(days=self.duration_days)).isoformat()
 
 
 @router.post("/instances", status_code=201)
@@ -177,8 +196,8 @@ async def create_instance(request: Request, user: asyncpg.Record = Depends(curre
         raise HTTPException(status_code=400, detail=f"protocol must be one of {PROTOCOLS}")
     if not (0.1 <= body.cpu_limit <= 8):
         raise HTTPException(status_code=400, detail="cpu_limit must be 0.1-8")
-    if not (128 <= body.memory_mb <= 8192):
-        raise HTTPException(status_code=400, detail="memory_mb must be 128-8192")
+    if not (128 <= body.memory_mb <= 32768):
+        raise HTTPException(status_code=400, detail="memory_mb must be 128-32768")
 
     slug = slugify(body.name)
     if not validate_slug(slug):
@@ -211,9 +230,10 @@ async def create_instance(request: Request, user: asyncpg.Record = Depends(curre
         secrets.token_urlsafe(24), now_iso,
     )
     await pool.execute(
-        "INSERT INTO instance_configs (instance_id, protocol, cpu_limit, memory_mb, core_version, protocols, updated_at) "
-        "VALUES ($1, $2, $3, $4, $5, $6, $7)",
-        instance_id, body.protocol, body.cpu_limit, body.memory_mb, body.core_version,
+        "INSERT INTO instance_configs (instance_id, protocol, cpu_limit, memory_mb, link_quota_bytes, expires_at, core_version, protocols, updated_at) "
+        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        instance_id, body.protocol, body.cpu_limit, body.memory_mb, body.quota_bytes,
+        body.expires_at, body.core_version,
         ",".join(body.protocols) if body.protocols else body.protocol, now_iso,
     )
     # Every instance gets a private path endpoint immediately (works on every
