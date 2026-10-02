@@ -135,9 +135,13 @@ class QuotaPolicyTests(unittest.TestCase):
         from lunel_console.routers.instances import CreateInstanceBody
 
         body = CreateInstanceBody({"name": "Prod", "config": {
-            "protocol": "vless-ws", "quota_gb": 30, "duration_days": 30}})
-        self.assertEqual(body.quota_bytes, 30 * 1024 ** 3)
+            "protocol": "vless-ws", "quota_mb": 102400, "duration_days": 30}})
+        self.assertEqual(body.quota_bytes, 102400 * 1024 ** 2)
         self.assertIsNotNone(body.expires_at)
+
+        small = CreateInstanceBody({"name": "Prod", "config": {
+            "protocol": "vless-ws", "quota_mb": 100}})
+        self.assertEqual(small.quota_bytes, 100 * 1024 ** 2)
 
         unlimited = CreateInstanceBody({"name": "Prod", "config": {"protocol": "vless-ws"}})
         self.assertEqual(unlimited.quota_bytes, 0)
@@ -147,10 +151,19 @@ class QuotaPolicyTests(unittest.TestCase):
         from fastapi import HTTPException
         from lunel_console.routers.instances import CreateInstanceBody
 
-        for bad in ({"quota_gb": -1}, {"quota_gb": 2000}, {"duration_days": -5},
+        for bad in ({"quota_mb": -1}, {"quota_mb": 200000}, {"duration_days": -5},
                     {"duration_days": 4000}):
             with self.assertRaises(HTTPException):
                 CreateInstanceBody({"name": "Prod", "config": {"protocol": "vless-ws", **bad}})
+
+    def test_memory_is_capped_at_two_gb(self):
+        from fastapi import HTTPException
+        from lunel_console.routers.instances import CreateInstanceBody
+
+        ok = CreateInstanceBody({"name": "Prod", "config": {"protocol": "vless-ws", "memory_mb": 2048}})
+        self.assertEqual(ok.memory_mb, 2048)
+        with self.assertRaises(HTTPException):
+            CreateInstanceBody({"name": "Prod", "config": {"protocol": "vless-ws", "memory_mb": 4096}})
 
     def test_core_stops_expired_and_exhausted_links(self):
         """Core is what actually cuts the user off once quota or time runs out."""

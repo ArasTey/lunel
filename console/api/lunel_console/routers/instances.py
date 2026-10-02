@@ -163,18 +163,20 @@ class CreateInstanceBody:
             self.protocols = None  # fall back to the primary protocol
         self.cpu_limit = float(config.get("cpu_limit") or 0.5)
         self.memory_mb = int(config.get("memory_mb") or 256)
+        if not (128 <= self.memory_mb <= 2048):
+            raise HTTPException(status_code=400, detail="memory_mb must be 128-2048")
         self.core_version = str(config.get("core_version") or "latest")[:40]
-        # Traffic quota (GB) and lifetime (days). 0 means unlimited.
-        self.quota_gb = float(config.get("quota_gb") or 0)
+        # Traffic quota (MB) and lifetime (days). 0 means unlimited.
+        self.quota_mb = int(config.get("quota_mb") or 0)
         self.duration_days = int(config.get("duration_days") or 0)
-        if self.quota_gb < 0 or self.quota_gb > 1024:
-            raise HTTPException(status_code=400, detail="quota_gb must be 0-1024")
+        if self.quota_mb < 0 or self.quota_mb > 102400:
+            raise HTTPException(status_code=400, detail="quota_mb must be 0-102400")
         if not (0 <= self.duration_days <= 3650):
             raise HTTPException(status_code=400, detail="duration_days must be 0-3650")
 
     @property
     def quota_bytes(self) -> int:
-        return int(self.quota_gb * 1024 ** 3)
+        return self.quota_mb * 1024 ** 2
 
     @property
     def expires_at(self) -> str | None:
@@ -196,8 +198,8 @@ async def create_instance(request: Request, user: asyncpg.Record = Depends(curre
         raise HTTPException(status_code=400, detail=f"protocol must be one of {PROTOCOLS}")
     if not (0.1 <= body.cpu_limit <= 8):
         raise HTTPException(status_code=400, detail="cpu_limit must be 0.1-8")
-    if not (128 <= body.memory_mb <= 32768):
-        raise HTTPException(status_code=400, detail="memory_mb must be 128-32768")
+    if not (128 <= body.memory_mb <= 2048):
+        raise HTTPException(status_code=400, detail="memory_mb must be 128-2048")
 
     slug = slugify(body.name)
     if not validate_slug(slug):
