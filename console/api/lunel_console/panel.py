@@ -288,13 +288,29 @@ function api(method,path,body,retry){
         // confirm the session really died before bouncing the user
         return fetch("/auth/me",{credentials:"same-origin"}).then(function(m){return m.json()}).then(function(me){
           if(me.authenticated){CSRF=me.csrf_token;return api(method,path,body,3)}
-          USER=null;render();throw new Error("please sign in again");
+          signOut("Your session ended. Please sign in again.");
+          throw new Error("please sign in again");
+        }).catch(function(err){
+          // /auth/me itself failed: drop straight to the login screen instead
+          // of leaving a half-signed-in UI where every button fails.
+          if(err&&err.message==="please sign in again")throw err;
+          signOut("Connection problem. Please sign in again.");
+          throw new Error("please sign in again");
         });
       }
       throw new Error((d&&d.detail)||("HTTP "+r.status));
     }
     return d})})}
 
+function signOut(message){
+  // One-shot: stop every poll first, otherwise several in-flight 401s each
+  // re-render the login screen and the user is asked to sign in repeatedly.
+  if(signOut.busy)return;
+  signOut.busy=true;
+  stopPoll();setCleanup(null);CSRF="";USER=null;
+  render();
+  if(message)setTimeout(function(){toast(message,"err",6000)},50);
+}
 // ───────────────────────────── icons ─────────────────────────────
 function ic(n){var p={dash:'<path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"/>',
 plus:'<path d="M12 5v14M5 12h14"/>',gear:'<path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/>',
@@ -727,7 +743,7 @@ function viewAdmin(){
 function render(){
   api("GET","/auth/me").then(function(me){
     if(!me.authenticated){viewLogin();return}
-    USER=me.user;CSRF=me.csrf_token;
+    USER=me.user;CSRF=me.csrf_token;signOut.busy=false;
     if(me.links){LINKS.github=me.links.github||LINKS.github;LINKS.telegram=me.links.telegram||""}
     viewDash();
   }).catch(function(e){
