@@ -163,10 +163,99 @@ button,.head,.import-head,.qr-plate,.user-area,.badge,.num,.os-title,.label{-web
 .channel-banner{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;padding:12px;margin-bottom:16px;border:1px solid var(--blue-border);border-radius:11px;background:var(--blue-bg);color:var(--blue);text-decoration:none;overflow-wrap:anywhere}
 .channel-note{font-size:12px;color:var(--muted);margin-bottom:8px}
 @media(max-width:620px){.details-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.configs-header{flex-wrap:wrap}.cfg-card .head{gap:6px;padding:12px 9px}.cfg-card .badges{max-width:100px}.cfg-card .name{max-width:100%}.btn,.copy-btn,.control-btn,.app-btn,.app-get,.theme-toggle{min-height:44px}.link-row input{font-size:16px}.subscription-info{flex:auto}.channel-banner{font-size:13px}}
+/* ═══════════════ Aurora FX · Glass · Motion ═══════════════ */
+:root,html[data-theme="dark"]{--glow-a:rgba(106,166,255,.20);--glow-b:rgba(169,139,250,.18);--glow-c:rgba(61,220,154,.12);--glass:rgba(19,19,27,.66);--hair:rgba(255,255,255,.06)}
+html[data-theme="light"]{--glow-a:rgba(10,95,216,.16);--glow-b:rgba(109,40,217,.14);--glow-c:rgba(4,120,87,.10);--glass:rgba(255,255,255,.82);--hair:rgba(16,24,40,.06)}
+html{background:var(--bg)}
+body{background:transparent}
+.bg-fx{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none;background:radial-gradient(1100px 620px at 18% -12%,var(--glow-a),transparent 62%),radial-gradient(900px 520px at 108% 4%,var(--glow-b),transparent 60%),radial-gradient(760px 620px at 46% 118%,var(--glow-c),transparent 62%)}
+.bg-fx::before{content:"";position:absolute;inset:-60px;background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);background-size:46px 46px;opacity:.5;-webkit-mask-image:radial-gradient(ellipse 80% 60% at 50% 0%,#000 5%,transparent 72%);mask-image:radial-gradient(ellipse 80% 60% at 50% 0%,#000 5%,transparent 72%);animation:gridDrift 30s linear infinite}
+.bg-fx::after{content:"";position:absolute;width:46vmax;height:46vmax;left:-12vmax;top:-16vmax;border-radius:50%;background:radial-gradient(circle,var(--glow-b),transparent 62%);filter:blur(50px);opacity:.55;animation:orbA 22s ease-in-out infinite alternate}
+.orb{position:absolute;width:38vmax;height:38vmax;right:-14vmax;bottom:-16vmax;border-radius:50%;background:radial-gradient(circle,var(--glow-a),transparent 62%);filter:blur(52px);opacity:.5;animation:orbB 26s ease-in-out infinite alternate}
+@keyframes gridDrift{to{transform:translate3d(46px,46px,0)}}
+@keyframes orbA{from{transform:translate3d(0,0,0) scale(1)}to{transform:translate3d(9vmax,7vmax,0) scale(1.18)}}
+@keyframes orbB{from{transform:translate3d(0,0,0) scale(1.1)}to{transform:translate3d(-8vmax,-6vmax,0) scale(.92)}}
+.card{position:relative;background:var(--glass);border:1px solid transparent;border-radius:22px;box-shadow:0 28px 70px -34px rgba(0,0,0,.72),0 1px 0 0 var(--hair) inset;backdrop-filter:blur(20px) saturate(150%);-webkit-backdrop-filter:blur(20px) saturate(150%);animation:rise .55s var(--e) both}
+.card::before{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;background:linear-gradient(120deg,var(--glow-a),transparent 38%,transparent 62%,var(--glow-b));background-size:220% 220%;-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none;animation:borderFlow 16s linear infinite}
+@keyframes borderFlow{0%{background-position:0% 50%}100%{background-position:220% 50%}}
+.card>*{animation:rise .6s var(--e) both}
+.card>*:nth-child(1){animation-delay:.02s}.card>*:nth-child(2){animation-delay:.09s}.card>*:nth-child(3){animation-delay:.16s}
+.card>*:nth-child(4){animation-delay:.23s}.card>*:nth-child(5){animation-delay:.3s}.card>*:nth-child(6){animation-delay:.37s}
+.card>*:nth-child(7){animation-delay:.44s}.card>*:nth-child(8){animation-delay:.51s}
+.header-section{position:relative;margin-bottom:26px}
+.header-section::after{content:"";position:absolute;left:0;right:0;bottom:-13px;height:1px;background:linear-gradient(90deg,transparent,var(--glow-a),var(--blue-border),transparent);background-size:220% 100%;animation:borderFlow 11s linear infinite}
+.header-title{font-size:23px;letter-spacing:-.4px;background:linear-gradient(94deg,var(--fg) 18%,var(--blue) 52%,var(--violet) 92%);background-size:220% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:borderFlow 9s ease-in-out infinite alternate}
+.header-sub{letter-spacing:.5px;opacity:.85}
+.user-area{background:linear-gradient(180deg,var(--soft),transparent);box-shadow:0 0 0 1px var(--hair) inset;transition:transform var(--t2) var(--e),box-shadow var(--t2) var(--e2)}
+.user-area:hover{transform:translateY(-2px);box-shadow:0 10px 26px -18px var(--glow-a),0 0 0 1px var(--hair) inset}
+.dot-status{position:relative}
+.s-active .dot-status::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:1.5px solid var(--ok);opacity:.55;animation:pulseRing 2.4s ease-out infinite}
+@keyframes pulseRing{0%{transform:scale(.55);opacity:.65}100%{transform:scale(1.7);opacity:0}}
+.theme-toggle{box-shadow:0 0 0 1px var(--hair) inset}
+.theme-toggle:hover{transform:translateY(-2px) rotate(-12deg);box-shadow:0 10px 24px -16px var(--glow-b)}
+.stats-grid{gap:13px}
+.stat-card{position:relative;overflow:hidden;background:linear-gradient(180deg,var(--panel),transparent);border-radius:16px;transition:transform var(--t2) var(--e),border-color var(--t2) var(--e2),box-shadow var(--t2) var(--e2)}
+.stat-card::after{content:"";position:absolute;inset:0;background:radial-gradient(120px 60px at 82% 0%,var(--glow-a),transparent 70%);opacity:0;transition:opacity var(--t3) var(--e2);pointer-events:none}
+.stat-card:hover{transform:translateY(-3px);border-color:var(--blue-border);box-shadow:0 18px 40px -26px var(--glow-a)}
+.stat-card:hover::after{opacity:1}
+.stat-card .bar .fill{position:relative;overflow:hidden;background:linear-gradient(90deg,var(--blue),var(--violet));background-size:200% 100%;animation:grow .9s var(--e) both,borderFlow 4s linear infinite}
+.stat-card .bar .fill::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.4),transparent);transform:translateX(-100%);animation:sweep 3.6s ease-in-out infinite}
+@keyframes sweep{0%{transform:translateX(-100%)}55%,100%{transform:translateX(100%)}}
+.subscription-section{background:linear-gradient(150deg,var(--panel),transparent);border-radius:18px;box-shadow:0 20px 50px -34px var(--glow-b)}
+.qr-col{position:relative}
+.qr-col::before{content:"";position:absolute;inset:6px 4px 46px;border-radius:24px;background:conic-gradient(from 0deg,transparent,var(--glow-b),transparent 38%,var(--glow-a),transparent 72%);filter:blur(13px);opacity:.55;pointer-events:none;animation:spin 9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.qr-plate{position:relative;z-index:1;box-shadow:0 14px 34px -18px rgba(0,0,0,.7);animation:qrin .5s var(--e) both}
+.qr-plate:hover{transform:translate3d(0,-4px,0) scale(1.02)}
+.link-url{cursor:pointer;transition:border-color var(--t2) var(--e2),background-color var(--t2) var(--e2),color var(--t2) var(--e2)}
+.link-url:hover{border-color:var(--blue-border);color:var(--fg)}
+.link-url.copied{background:var(--green-bg);border-color:var(--green-border);color:var(--green)}
+.import-block{border-radius:18px;background:linear-gradient(180deg,var(--panel),transparent);box-shadow:0 18px 44px -34px rgba(0,0,0,.6)}
+.import-block.open{box-shadow:0 22px 54px -30px var(--glow-a);border-color:var(--blue-border)}
+.import-block.open .os-group{animation:rise .5s var(--e) both}
+.import-block.open .os-group:nth-child(2){animation-delay:.07s}
+.import-block.open .os-group:nth-child(3){animation-delay:.14s}
+.import-block.open .os-group:nth-child(4){animation-delay:.21s}
+.import-head .t svg.ic{animation:floaty 3.6s ease-in-out infinite}
+@keyframes floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+.app-item{border-radius:12px;box-shadow:0 1px 0 0 var(--hair) inset;transition:transform var(--t2) var(--e),box-shadow var(--t2) var(--e2),border-color var(--t2) var(--e2)}
+.app-item:hover{transform:translateY(-3px) scale(1.02);border-color:var(--blue-border);box-shadow:0 16px 34px -22px var(--glow-a)}
+.os-title{letter-spacing:.6px}
+.control-btn{box-shadow:0 1px 0 0 var(--hair) inset}
+.control-btn:hover{box-shadow:0 10px 22px -16px var(--glow-a)}
+.config-list{gap:10px}
+.cfg-card{animation:rise .5s var(--e) both;background:linear-gradient(180deg,var(--panel),transparent);box-shadow:0 1px 0 0 var(--hair) inset;transition:transform var(--t2) var(--e),border-color var(--t2) var(--e2),box-shadow var(--t2) var(--e2)}
+.cfg-card:hover{border-color:var(--blue-border);transform:translateY(-1px);box-shadow:0 18px 40px -30px var(--glow-b)}
+.cfg-card.open{border-color:var(--blue-border);box-shadow:0 22px 52px -30px var(--glow-a)}
+.cfg-card .head:hover{background:linear-gradient(90deg,var(--soft),transparent)}
+.cfg-card.open .num{animation:numPop .4s var(--e)}
+@keyframes numPop{0%{transform:scale(.7)}60%{transform:scale(1.14)}100%{transform:scale(1)}}
+.cfg-card .badge{transition:transform var(--t2) var(--e),box-shadow var(--t2) var(--e2)}
+.cfg-card:hover .badge{transform:translateY(-1px)}
+.cfg-card.open .badge{box-shadow:0 0 0 1px var(--hair) inset,0 6px 16px -12px var(--glow-b)}
+.detail-item{transition:transform var(--t2) var(--e),background-color var(--t2) var(--e2)}
+.detail-item:hover{transform:translateY(-2px);background:var(--raise)}
+.channel-banner{position:relative;overflow:hidden;border-radius:14px;box-shadow:0 16px 38px -28px var(--glow-a);transition:transform var(--t2) var(--e),box-shadow var(--t2) var(--e2)}
+.channel-banner::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.22),transparent);transform:translateX(-100%);animation:sweep 5.5s ease-in-out infinite;pointer-events:none}
+.channel-banner:hover{transform:translateY(-2px);box-shadow:0 20px 44px -26px var(--glow-a)}
+.footer{opacity:.8}
+.btn,.control-btn,.copy-btn,.app-btn,.app-get,.qr-save,.theme-toggle{position:relative;overflow:hidden}
+.btn:hover{transform:translate3d(0,-2px,0);box-shadow:0 14px 30px -20px var(--glow-a)}
+.btn-primary:hover{box-shadow:0 16px 34px -18px var(--glow-a)}
+.btn-success:hover{box-shadow:0 16px 34px -18px var(--glow-c)}
+.copy-btn:hover{transform:translate3d(0,-2px,0);box-shadow:0 12px 26px -18px var(--glow-b)}
+.ripple{position:absolute;border-radius:50%;background:currentColor;opacity:.2;transform:scale(0);animation:rip .62s var(--e2) forwards;pointer-events:none}
+@keyframes rip{to{transform:scale(2.7);opacity:0}}
+.btn:focus-visible,.control-btn:focus-visible,.copy-btn:focus-visible,.app-btn:focus-visible,.app-get:focus-visible,.qr-save:focus-visible,.theme-toggle:focus-visible,.link-url:focus-visible{outline:2px solid var(--blue)!important;outline-offset:2px!important;box-shadow:none!important}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--track);border-radius:10px;border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:var(--dim);background-clip:content-box}
+@media(max-width:620px){.orb,.bg-fx::after{filter:blur(34px);opacity:.42}.card{border-radius:18px;padding:18px 15px}.header-title{font-size:20px}.qr-col::before{filter:blur(9px)}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}}
 </style>
 </head>
 <body>
+<div class="bg-fx" aria-hidden="true"><div class="orb"></div></div>
 <div class="container">
  <div class="card tz">
 
@@ -193,12 +282,12 @@ button,.head,.import-head,.qr-plate,.user-area,.badge,.num,.os-title,.label{-web
   <div class="stats-grid">
    <div class="stat-card tz">
     <div class="label"><span>Remaining</span><span class="pct">∞</span></div>
-    <div class="bar"><div class="fill" style="width:100%;background:var(--blue)"></div></div>
+    <div class="bar"><div class="fill" style="width:100%"></div></div>
     <div class="values"><b>∞</b><span>Not reported / ∞</span></div>
    </div>
    <div class="stat-card tz">
     <div class="label"><span>Time</span><span class="pct">∞</span></div>
-    <div class="bar"><div class="fill" style="width:100%;background:var(--blue)"></div></div>
+    <div class="bar"><div class="fill" style="width:100%"></div></div>
     <div class="values"><b style="color:var(--blue)">Unlimited</b><span>—</span></div>
    </div>
   </div>
@@ -523,6 +612,36 @@ button,.head,.import-head,.qr-plate,.user-area,.badge,.num,.os-title,.label{-web
    if (!input) return;
    copyText(input.value, btn, 'Copied');
   });
+
+  /* ---------- motion polish: stagger, ripple, tap-to-copy ---------- */
+  (function(){
+   var reduce = false;
+   try { reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+   var cards = document.querySelectorAll('.cfg-card');
+   for (var i = 0; i < cards.length; i++) {
+    cards[i].style.animationDelay = reduce ? '' : Math.min(i * 55, 550) + 'ms';
+   }
+   document.addEventListener('pointerdown', function(ev){
+    if (reduce) return;
+    var el = closestOf(ev.target, '.btn,.control-btn,.copy-btn,.app-btn,.app-get,.qr-save,.theme-toggle');
+    if (!el) return;
+    var rect = el.getBoundingClientRect();
+    var size = Math.max(rect.width, rect.height);
+    var span = document.createElement('span');
+    span.className = 'ripple';
+    span.style.width = span.style.height = size + 'px';
+    span.style.left = (ev.clientX - rect.left - size / 2) + 'px';
+    span.style.top = (ev.clientY - rect.top - size / 2) + 'px';
+    el.appendChild(span);
+    setTimeout(function(){ if (span.parentNode) span.parentNode.removeChild(span); }, 640);
+   }, { passive: true });
+   var linkBox = document.getElementById('subLink');
+   if (linkBox) linkBox.addEventListener('click', function(){
+    copyText(SUB_URL, document.getElementById('copySubBtn'), 'Copied');
+    linkBox.classList.add('copied');
+    setTimeout(function(){ linkBox.classList.remove('copied'); }, 1300);
+   });
+  })();
 
   /* ---------- import ---------- */
   var enc = encodeURIComponent(SUB_URL);

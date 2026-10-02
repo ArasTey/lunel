@@ -132,14 +132,130 @@ a{color:var(--blu);text-decoration:none}
 .qr-c{background:var(--sur);border:1px solid var(--bd2);border-radius:12px;padding:20px;text-align:center;max-width:340px}
 .qr-c .qrbox svg{width:240px;height:240px;display:block;margin:8px auto;background:#fff;border-radius:8px}
 .free{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;letter-spacing:1px;font-weight:700;color:var(--grn);border:1px solid rgba(78,203,149,.4);border-radius:999px;padding:2px 9px;text-transform:uppercase}
+/* ═══════════════ Aurora FX · Glass · Motion ═══════════════ */
+:root{--glow-a:rgba(111,155,255,.20);--glow-b:rgba(158,128,255,.17);--glow-c:rgba(78,203,149,.12);
+--glass:rgba(18,21,28,.72);--hair:rgba(255,255,255,.055);--e:cubic-bezier(.22,1,.36,1);--e2:cubic-bezier(.4,0,.2,1)}
+html{background:var(--bg)}
+body{background:transparent;min-height:100vh}
+.bg-fx{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;
+background:radial-gradient(1100px 620px at 15% -12%,var(--glow-a),transparent 62%),
+radial-gradient(900px 520px at 108% 2%,var(--glow-b),transparent 60%),
+radial-gradient(760px 620px at 45% 118%,var(--glow-c),transparent 62%)}
+.bg-fx::before{content:"";position:absolute;inset:-60px;opacity:.55;
+background-image:linear-gradient(var(--bd) 1px,transparent 1px),linear-gradient(90deg,var(--bd) 1px,transparent 1px);
+background-size:46px 46px;-webkit-mask-image:radial-gradient(ellipse 80% 60% at 50% 0%,#000 5%,transparent 72%);
+mask-image:radial-gradient(ellipse 80% 60% at 50% 0%,#000 5%,transparent 72%);animation:gridDrift 30s linear infinite}
+.bg-fx::after{content:"";position:absolute;width:46vmax;height:46vmax;left:-14vmax;top:-18vmax;border-radius:50%;
+background:radial-gradient(circle,var(--glow-b),transparent 62%);filter:blur(52px);opacity:.5;animation:orbA 22s ease-in-out infinite alternate}
+.bg-fx .orb{position:absolute;width:38vmax;height:38vmax;right:-14vmax;bottom:-18vmax;border-radius:50%;
+background:radial-gradient(circle,var(--glow-a),transparent 62%);filter:blur(54px);opacity:.45;animation:orbB 26s ease-in-out infinite alternate}
+@keyframes gridDrift{to{transform:translate3d(46px,46px,0)}}
+@keyframes orbA{from{transform:translate3d(0,0,0) scale(1)}to{transform:translate3d(9vmax,7vmax,0) scale(1.18)}}
+@keyframes orbB{from{transform:translate3d(0,0,0) scale(1.1)}to{transform:translate3d(-8vmax,-6vmax,0) scale(.92)}}
+@keyframes riseIn{from{opacity:0;transform:translate3d(0,12px,0)}to{opacity:1;transform:none}}
+@keyframes borderFlow{0%{background-position:0% 50%}100%{background-position:220% 50%}}
+@keyframes rip{to{transform:scale(2.7);opacity:0}}
+@keyframes toastIn{from{opacity:0;transform:translate3d(0,14px,0) scale(.96)}to{opacity:1;transform:none}}
+@keyframes popIn{from{opacity:0;transform:translate3d(0,16px,0) scale(.96)}to{opacity:1;transform:none}}
+.shell{position:relative;z-index:1}
+.sb{background:linear-gradient(180deg,rgba(16,19,26,.88),rgba(10,12,16,.94));backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-right-color:var(--hair)}
+.card,.sg,.ic,.lc .card,.qr-c{position:relative;background:var(--glass);backdrop-filter:blur(18px) saturate(140%);
+-webkit-backdrop-filter:blur(18px) saturate(140%);border:1px solid var(--hair);
+box-shadow:0 24px 60px -34px rgba(0,0,0,.7),0 1px 0 0 rgba(255,255,255,.03) inset}
+.card{border-radius:14px}
+.card::before{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;pointer-events:none;opacity:.85;
+background:linear-gradient(120deg,var(--glow-a),transparent 38%,transparent 62%,var(--glow-b));background-size:220% 220%;
+-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;
+animation:borderFlow 18s linear infinite}
+.bm{animation:brandFloat 6s ease-in-out infinite}
+@keyframes brandFloat{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-2px) rotate(-7deg)}}
+.bn{background:linear-gradient(94deg,var(--tx),var(--blu) 58%,#bca8ff 96%);background-size:220% 100%;
+-webkit-background-clip:text;background-clip:text;color:transparent;animation:borderFlow 10s ease-in-out infinite alternate}
+.ni{transition:background-color .16s var(--e2),color .16s var(--e2),transform .16s var(--e2),border-color .16s var(--e2);position:relative;overflow:hidden}
+.ni:hover{transform:translateX(3px)}
+.ni.act{box-shadow:0 0 0 1px var(--hair) inset,0 12px 28px -20px var(--glow-a)}
+.sbft{border-top-color:var(--hair)}
+.btn{position:relative;overflow:hidden;transition:transform .16s var(--e),background-color .16s var(--e2),border-color .16s var(--e2),box-shadow .16s var(--e2)}
+.btn:hover{transform:translateY(-2px);box-shadow:0 12px 26px -18px var(--glow-a)}
+.btn.pri:hover{box-shadow:0 14px 30px -18px var(--glow-b)}
+.btn.dng:hover{box-shadow:0 12px 26px -18px rgba(239,107,115,.5)}
+.inp{transition:border-color .16s var(--e2),box-shadow .16s var(--e2)}
+.inp:hover{border-color:#37415a}
+.ripple{position:absolute;border-radius:50%;background:currentColor;opacity:.2;transform:scale(0);
+animation:rip .62s var(--e2) forwards;pointer-events:none}
+.sg{transition:transform .2s var(--e),border-color .2s var(--e2),box-shadow .2s var(--e2)}
+.sg:hover{transform:translateY(-3px);border-color:var(--bd2);box-shadow:0 18px 38px -26px var(--glow-a)}
+.ic{transition:transform .2s var(--e),border-color .2s var(--e2),box-shadow .2s var(--e2);overflow:hidden}
+.ic::after{content:"";position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .3s var(--e2);
+background:radial-gradient(240px 120px at 80% 0%,var(--glow-a),transparent 70%)}
+.ic:hover{transform:translateY(-4px);border-color:var(--bd2);box-shadow:0 22px 44px -26px var(--glow-a)}
+.ic:hover::after{opacity:1}
+.kv .it{transition:transform .2s var(--e),border-color .2s var(--e2)}
+.kv .it:hover{transform:translateY(-2px);border-color:var(--bd2)}
+.opt{position:relative;overflow:hidden;transition:transform .2s var(--e),border-color .2s var(--e2),background-color .2s var(--e2),box-shadow .2s var(--e2)}
+.opt:hover{transform:translateY(-2px);border-color:var(--bd2)}
+.opt.sel{background:var(--sur2);border-color:var(--blu);box-shadow:0 0 0 1px var(--blu) inset,0 14px 32px -22px var(--glow-a)}
+.tbl tbody tr{transition:background-color .16s var(--e2)}
+.tbl tbody tr:hover{background:rgba(255,255,255,.03)}
+.tb{background:var(--glass);transition:background-color .16s var(--e2)}
+.tab{transition:color .18s var(--e2),border-color .18s var(--e2)}
+.tab:hover{color:var(--tx)}
+.tab.act{border-bottom-color:var(--blu)}
+.empty{transition:border-color .2s var(--e2),transform .2s var(--e2)}
+.empty:hover{border-color:var(--bd2)}
+.term{box-shadow:0 18px 44px -30px rgba(0,0,0,.6)}
+.to{animation:toastIn .32s var(--e) both;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:0 18px 40px -22px rgba(0,0,0,.7)}
+.qr-ov{backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.qr-c{animation:popIn .34s var(--e) both;box-shadow:0 30px 70px -30px rgba(0,0,0,.8)}
+/* Entrance animations run once on first paint only — a poll re-render must not replay them. */
+.an .lw .card{animation:riseIn .5s var(--e) both}
+.an .ct>*{animation:riseIn .5s var(--e) both}
+.an .ct>*:nth-child(1){animation-delay:.02s}.an .ct>*:nth-child(2){animation-delay:.09s}
+.an .ct>*:nth-child(3){animation-delay:.16s}.an .ct>*:nth-child(4){animation-delay:.23s}
+.an .ct>*:nth-child(5){animation-delay:.3s}.an .ct>*:nth-child(6){animation-delay:.37s}
+.an .sgs>.sg{animation:riseIn .45s var(--e) both}
+.an .sgs>.sg:nth-child(1){animation-delay:.05s}.an .sgs>.sg:nth-child(2){animation-delay:.12s}
+.an .sgs>.sg:nth-child(3){animation-delay:.19s}.an .sgs>.sg:nth-child(4){animation-delay:.26s}
+.an .ig>.ic{animation:riseIn .45s var(--e) both}
+.an .ig>.ic:nth-child(1){animation-delay:.04s}.an .ig>.ic:nth-child(2){animation-delay:.1s}
+.an .ig>.ic:nth-child(3){animation-delay:.16s}.an .ig>.ic:nth-child(4){animation-delay:.22s}
+.an .ig>.ic:nth-child(n+5){animation-delay:.28s}
+.an .optg>.opt{animation:riseIn .4s var(--e) both}
+.chip{transition:border-color .18s var(--e2),color .18s var(--e2)}
+.dm{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:10px;margin:14px 0}
+.dm .n{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rs);padding:11px 13px;transition:transform .2s var(--e),border-color .2s var(--e2)}
+.dm .n:hover{transform:translateY(-2px);border-color:var(--bd2)}
+.dm .n b{display:block;font-size:12px;margin-bottom:4px}
+.dm .n span{font-size:11.5px;color:var(--fnt);line-height:1.55}
+.dm .n.yes b{color:var(--grn)}.dm .n.no b{color:var(--amb)}
+.warnbox{border:1px solid rgba(227,179,65,.35);background:rgba(227,179,65,.08);border-radius:var(--rs);
+padding:11px 13px;font-size:12.5px;color:#f0d79a;margin-bottom:14px}
+.scroll-y{overflow:auto;max-height:min(52vh,460px)}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:#2a3242;border-radius:10px;border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:#3a465e;background-clip:content-box}
+@media(max-width:840px){.bg-fx::after,.bg-fx .orb{filter:blur(34px);opacity:.38}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}}
 </style>
 </head>
 <body>
+<div class="bg-fx" aria-hidden="true"><div class="orb"></div></div>
 <div id="app"><div class="lw"><span class="sp1"></span></div></div>
 <script>
 (function(){"use strict";
 // ───────────────────────────── helpers ─────────────────────────────
 var CSRF="";
+var REDUCED=false;try{REDUCED=window.matchMedia("(prefers-reduced-motion: reduce)").matches}catch(e){}
+// Entrance animations play on the first paint only; later poll re-renders stay put.
+if(!REDUCED){document.body.classList.add("an");setTimeout(function(){document.body.classList.remove("an")},1200)}
+document.addEventListener("pointerdown",function(e){
+  if(REDUCED||!e.target.closest)return;
+  var el=e.target.closest(".btn,.ni,.tab,.opt,.copy");if(!el)return;
+  var r=el.getBoundingClientRect(),s=Math.max(r.width,r.height),sp=document.createElement("span");
+  sp.className="ripple";sp.style.width=sp.style.height=s+"px";
+  sp.style.left=(e.clientX-r.left-s/2)+"px";sp.style.top=(e.clientY-r.top-s/2)+"px";
+  el.appendChild(sp);setTimeout(function(){if(sp.parentNode)sp.parentNode.removeChild(sp)},640);
+},{passive:true});
 function $(s,el){return (el||document).querySelector(s)}
 function esc(s){var d=document.createElement("div");d.textContent=s==null?"":String(s);return d.innerHTML}
 function toast(msg,kind,ms){var w=$(".tw");if(!w){w=document.createElement("div");w.className="tw";document.body.appendChild(w)}
@@ -206,9 +322,9 @@ function shell(nav){
     '<div class="sbft"><div class="who"><b>'+esc(USER.name||USER.login)+'</b><span>@'+esc(USER.login)+'</span></div>'+
     '<button class="btn sm" style="margin-left:auto" id="lg">Sign out</button></div></aside>'+
     '<div class="main"><div class="topbar">'+MARK+'<b style="font-size:14px">Lunel</b>'+
+    (LINKS.telegram?'<a class="btn sm" href="'+esc(LINKS.telegram)+'" target="_blank" rel="noopener noreferrer">'+ic("tg")+' Telegram</a>':"")+
     '<button class="btn sm menu-btn" id="mb">&#9776;</button>'+
     '<button class="btn sm" style="margin-left:auto" id="lgm">Sign out</button></div>'+
-    '<a class="btn" style="margin:16px;align-self:flex-start" href="https://t.me/imArasTey" target="_blank" rel="noopener noreferrer">'+ic("tg")+' Telegram · @imArasTey</a>'+
     '<div class="ct" id="view"></div>'+
     '<nav class="bnav"><button class="ni '+(nav==="dash"?"act":"")+'" data-nav="dash">'+ic("dash")+'<span>Home</span></button>'+
     '<button class="ni '+(nav==="new"?"act":"")+'" data-nav="new">'+ic("plus")+'<span>Create</span></button>'+
@@ -234,10 +350,10 @@ function viewLogin(){
   $("#app").innerHTML='<div class="lw"><div class="lc"><div class="card">'+
     '<div style="text-align:center">'+MARK+'<h2>Lunel</h2>'+
     '<p class="p" style="text-align:center">Deploy and manage multi-protocol proxy instances.</p></div>'+
-    '<p class="fn"><a href="https://t.me/imArasTey" target="_blank" rel="noopener noreferrer">Telegram Channel · @imArasTey</a></p>'+
     '<div class="fld"><label>Account name</label><input class="inp" id="u" placeholder="admin" autocomplete="username"></div>'+
     '<div class="fld"><label>Password</label><input class="inp" id="p" type="password" autocomplete="current-password"></div>'+
     '<button class="btn pri" id="go" style="width:100%">Sign in</button>'+
+    '<p class="fn" style="text-align:center"><a href="https://t.me/imArasTey" target="_blank" rel="noopener noreferrer">Telegram Channel · @imArasTey</a></p>'+
     '<p class="fn">Default account is <span class="mono">admin / admin</span> — change it in Admin → System.</p>'+
     '</div></div></div>';
   $("#go").onclick=function(){
@@ -252,10 +368,11 @@ function viewDash(){
   shell("dash");
   var v=$("#view");
   v.innerHTML='<div class="ph"><div><h1>Dashboard</h1><div class="sub">Your Lunel instances at a glance.</div></div>'+
-    '<div class="ha"><button class="btn pri" data-go="new">+ Create Instance</button></div></div>'+
+    '<div class="ha"><button class="btn pri" data-go="new">+ Create Instance</button><button class="btn" data-admin="backup">Data management</button></div></div>'+
     '<div class="sgs" id="sgs"></div><h3 style="margin:0 0 10px;font-size:13.5px">Instances</h3><div id="il"></div>'+
     '<div class="card" style="margin-top:22px"><h3>Recent activity</h3><div id="ac" class="mut">—</div></div>';
   Array.prototype.forEach.call(v.querySelectorAll("[data-go]"),function(b){b.onclick=function(){nav_(b.dataset.go)}});
+  Array.prototype.forEach.call(v.querySelectorAll("[data-admin]"),function(b){b.onclick=function(){window.__admin_tab=b.dataset.admin;nav_("admin")}});
   var t=null;
   function load(){
     return Promise.all([api("GET","/api/instances"),api("GET","/api/activity")]).then(function(rs){
@@ -491,7 +608,7 @@ function viewAdmin(){
   shell("admin");
   var v=$("#view");
   v.innerHTML='<div class="ph"><div><h1>Admin</h1><div class="sub">Platform-wide state. Actions are audited.</div></div></div><div class="sgs" id="as"></div><div id="ab"></div>';
-  var tab="instances";
+  var tab=window.__admin_tab||"instances";
   function stats(){api("GET","/api/admin/overview").then(function(s){
     $("#as").innerHTML='<div class="sg"><div class="l">Users</div><div class="v">'+s.users+'</div></div><div class="sg"><div class="l">Instances</div><div class="v">'+s.instances+'</div></div><div class="sg"><div class="l">Running</div><div class="v" style="color:var(--grn)">'+s.instances_running+'</div></div><div class="sg"><div class="l">Workers online</div><div class="v">'+s.workers_online+"</div></div>"})
   .catch(function(e){if(e.message.indexOf("admin")>=0)nav_("dash")})}
@@ -527,7 +644,16 @@ function viewAdmin(){
         (d.workers.length?d.workers.map(function(w){return "<tr><td class='mono'>"+esc(w.node_id)+"</td><td>"+esc(w.region)+"</td><td>"+stEl(w.status).outerHTML+"</td><td>"+(w.cpu_percent!=null?w.cpu_percent.toFixed(0)+"%":"—")+"</td><td>"+(w.mem_used_mb!=null?w.mem_used_mb+" / "+w.mem_total_mb+" MB":"—")+"</td><td>"+(w.instances||0)+" / "+(w.capacity||"?")+"</td><td class='ftx'>"+ago(w.last_heartbeat)+"</td></tr>"}).join(""):'<tr><td colspan="7" class="ftx" style="text-align:center;padding:20px">No workers reported yet.</td></tr>')+"</tbody></table></div>"});
     }
     else if(tab==="backup"){
-      b.innerHTML='<div class="card"><h3>Configuration backup & restore</h3><p class="ftx">Sensitive plaintext backup: includes password hashes and endpoint secrets. Store encrypted offline. Core runtime state, Shadowsocks passwords and worker registry are NOT included.</p><p class="ftx">Import never overwrites existing records. Imported instances are stopped, domains inactive and workers disabled. Target LUNEL_SECRET_KEY must match. Read the validation warnings before importing.</p><button class="btn" id="backup-export">Download configuration</button><hr><div class="fld"><label>Backup JSON (maximum 16 MiB)</label><input type="file" id="backup-file" accept="application/json,.json"></div><div class="row"><button class="btn" id="backup-check" disabled>Validate</button><button class="btn dng" id="backup-restore" disabled>Import configuration</button></div><pre id="backup-result" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></div>';
+      b.innerHTML='<div class="card"><h3>Data management</h3><p class="ftx">Export or import your console configuration. Import is insert-only and never overwrites an existing record.</p>'+
+      '<div class="dm">'+
+      '<div class="n yes"><b>Included</b><span>Users and password hashes, instances, instance configs, workers, domains, share links, Core API tokens and the endpoint secret.</span></div>'+
+      '<div class="n no"><b>Not included</b><span>Core runtime state, Shadowsocks runtime passwords, worker registry, sessions, OAuth states, metrics, deployment history and provider secrets.</span></div>'+
+      '<div class="n no"><b>After import</b><span>Instances are stopped, domains inactive, workers disabled and provider bindings cleared. Runtime recovery stays manual.</span></div></div>'+
+      '<div class="warnbox"><b>This file contains secrets.</b> Password hashes, Core API tokens and the endpoint secret travel inside it — encrypt it and keep it offline. The target console must share the same <span class="mono">LUNEL_SECRET_KEY</span>.</div>'+
+      '<button class="btn pri" id="backup-export">Download configuration</button>'+
+      '<div class="fld" style="margin-top:18px"><label>Backup JSON (maximum 16 MiB)</label><input type="file" id="backup-file" accept="application/json,.json"></div>'+
+      '<div class="row"><button class="btn" id="backup-check" disabled>Validate</button><button class="btn dng" id="backup-restore" disabled>Import configuration</button></div>'+
+      '<pre id="backup-result" class="scroll-y" style="white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rs);padding:11px;margin-top:14px"></pre></div>';
       var backupText=null,backupBusy=false;
       function backupCall(action,body){return fetch('/api/admin/backup/'+action,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-Lunel-CSRF':CSRF||'','X-Lunel-Backup-Confirm':action==='restore'?'import':''},body:body}).then(function(r){return r.json().then(function(d){if(!r.ok)throw new Error(typeof d.detail==='string'?d.detail:JSON.stringify(d.detail||d));return d})})}
       function backupShow(d){$('#backup-result').textContent=JSON.stringify(d,null,2)}
@@ -562,7 +688,8 @@ function viewAdmin(){
     var old=$("#ab");var head=v.querySelector(".ph"),sgs=$("#as");
     v.innerHTML="";v.appendChild(head);v.appendChild(sgs);
     var tb=document.createElement("div");tb.className="tabs";tb.id="atb";
-    ["instances","users","workers","backup","system"].forEach(function(t){var btn=document.createElement("button");btn.className="tab "+(t===tab?"act":"");btn.textContent=t[0].toUpperCase()+t.slice(1);btn.onclick=function(){tab=t;rebuild();draw()};tb.appendChild(btn)});
+    var TL={instances:"Instances",users:"Users",workers:"Workers",backup:"Data management",system:"System"};
+    ["instances","users","workers","backup","system"].forEach(function(t){var btn=document.createElement("button");btn.className="tab "+(t===tab?"act":"");btn.textContent=TL[t];btn.onclick=function(){tab=t;window.__admin_tab=t;rebuild();draw()};tb.appendChild(btn)});
     var ab=document.createElement("div");ab.id="ab";v.appendChild(tb);v.appendChild(ab);
     draw();
   }
