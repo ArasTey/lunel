@@ -327,6 +327,11 @@ async def _provision_default_link(pool: asyncpg.Pool, deployment_id: str,
         # link stops relaying and drops out of the subscription on refresh.
         quota_bytes = int(proto_row["link_quota_bytes"]) if proto_row and proto_row["link_quota_bytes"] else 0
         expires_at = proto_row["expires_at"] if proto_row and proto_row["expires_at"] else None
+        # asyncpg returns TIMESTAMPTZ columns as datetime; Core expects a
+        # string, and datetime is not JSON serialisable.
+        if expires_at is not None and not isinstance(expires_at, str):
+            expires_at = (expires_at.isoformat()
+                          if hasattr(expires_at, "isoformat") else str(expires_at))
         pretty_map = {"vless-ws": "VLESS", "trojan-ws": "Trojan",
                       "shadowsocks": "Shadowsocks", "xhttp-packet-up": "xHTTP",
                       "xhttp-stream-up": "xHTTP",

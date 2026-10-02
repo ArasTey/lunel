@@ -574,6 +574,11 @@ async def check_reachability(request: Request, user: asyncpg.Record = Depends(cu
             "AND public_host IS NOT NULL LIMIT 1", user["id"],
         )
         host = (cfg_rows[0]["public_host"] if cfg_rows else "") or ""
+    if not host:
+        # Path-endpoint deployments have no stored public_host; the domain the
+        # operator is actually serving from is the one worth probing.
+        forwarded = (request.headers.get("x-forwarded-host") or "").split(",")[0].strip()
+        host = forwarded or (request.headers.get("host") or "").split(":")[0].strip()
     try:
         return await run(host)
     except PingCheckError as exc:
